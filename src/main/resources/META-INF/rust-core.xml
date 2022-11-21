@@ -521,6 +521,11 @@
                          implementationClass="org.rust.ide.inspections.RsWrongGenericParametersNumberInspection"/>
 
         <localInspection language="Rust" groupName="Rust"
+                         displayName="Assignment in a match guard"
+                         enabledByDefault="true" level="ERROR"
+                         implementationClass="org.rust.ide.inspections.RsAssignInMatchGuardInspection"/>
+
+        <localInspection language="Rust" groupName="Rust"
                          displayName="Re-assign immutable variable"
                          enabledByDefault="true" level="ERROR"
                          implementationClass="org.rust.ide.inspections.RsReassignImmutableInspection"/>
