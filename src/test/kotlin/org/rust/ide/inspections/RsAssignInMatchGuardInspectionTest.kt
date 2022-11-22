@@ -33,7 +33,42 @@ class RsAssignInMatchGuardInspectionTest : RsInspectionsTestBase(RsAssignInMatch
                     false
                 } => (),
                 Some(_) => (),
-             }
+            }
+        }
+    """
+    )
+
+    fun `test E0510 with lambda call`() = checkByText(
+        """
+        fn main() {
+            let mut x = &mut &Some(&0);
+            match **x {
+                None => {}
+                Some(&_) if {
+                    (|| {
+                        <error descr="The matched value was assigned in a match guard [E0510]">x = &None</error>;
+                    })();
+                } => {}
+                _ => {},
+            }
+        }
+    """
+    )
+
+    fun `test E0510 with nested block`() = checkByText(
+        """
+        fn main() {
+            let mut x = &Some(0);
+            match *x {
+                None => (),
+                Some(_) if {
+                    {
+                        <error descr="The matched value was assigned in a match guard [E0510]">x = &None</error>;
+                    }
+                    false
+                } => (),
+                Some(_) => (),
+            }
         }
     """
     )

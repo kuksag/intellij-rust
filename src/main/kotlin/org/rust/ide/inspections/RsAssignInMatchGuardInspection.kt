@@ -5,6 +5,7 @@
 
 package org.rust.ide.inspections
 
+import com.intellij.psi.util.descendants
 import org.rust.lang.core.psi.RsBinaryExpr
 import org.rust.lang.core.psi.RsBlockExpr
 import org.rust.lang.core.psi.RsExpr
@@ -29,13 +30,12 @@ class RsAssignInMatchGuardInspection : RsLocalInspectionTool() {
 
 private fun inspect(holder: RsProblemsHolder, match: RsMatchExpr) {
     val varName = getVarName(match.expr) ?: return
-    
     match.matchBody?.matchArmList?.forEach { arm ->
         (arm.matchArmGuard?.expr as? RsBlockExpr)?.let { guard ->
-            guard.block.stmtList.forEach { stmt ->
-                (stmt as? RsExprStmt)?.expr.let { expr ->
+            guard.descendants().forEach { element ->
+                (element as? RsExprStmt)?.expr.let { expr ->
                     (expr as? RsBinaryExpr)?.takeIf { it.isAssignBinaryExpr }?.let { binaryExpr ->
-                        getVarName(binaryExpr.left as? RsPathExpr).takeIf { it == varName }?.let {
+                        getVarName(binaryExpr.left).takeIf { it == varName }?.let {
                             RsDiagnostic.AssignInMatchGuardError(binaryExpr).addToHolder(holder)
                         }
                     }
