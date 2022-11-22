@@ -29,6 +29,7 @@ class RsAssignInMatchGuardInspection : RsLocalInspectionTool() {
 
 private fun inspect(holder: RsProblemsHolder, match: RsMatchExpr) {
     val varName = getVarName(match.expr) ?: return
+    
     match.matchBody?.matchArmList?.forEach { arm ->
         (arm.matchArmGuard?.expr as? RsBlockExpr)?.let { guard ->
             guard.block.stmtList.forEach { stmt ->
