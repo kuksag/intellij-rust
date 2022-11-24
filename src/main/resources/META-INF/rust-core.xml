@@ -526,6 +526,11 @@
                          implementationClass="org.rust.ide.inspections.RsReassignImmutableInspection"/>
 
         <localInspection language="Rust" groupName="Rust"
+                         displayName="Type or const parameters on foreign items"
+                         enabledByDefault="true" level="ERROR"
+                         implementationClass="org.rust.ide.inspections.RsConstOrTypeParamsInExternInspection"/>
+
+        <localInspection language="Rust" groupName="Rust"
                          displayName="Borrow checker"
                          enabledByDefault="true" level="ERROR"
                          implementationClass="org.rust.ide.inspections.RsBorrowCheckerInspection"/>
