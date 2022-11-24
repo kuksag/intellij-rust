@@ -264,6 +264,11 @@ private fun checkValueParameter(holder: AnnotationHolder, param: RsValueParamete
 
 private fun checkTypeParameterList(holder: AnnotationHolder, element: RsTypeParameterList) {
     if (element.parent is RsImplItem || element.parent is RsFunction) {
+        if ((element.parent as? RsFunction)?.owner == RsAbstractableOwner.Foreign) {
+            if (element.typeParameterList.isNotEmpty() || element.constParameterList.isNotEmpty()) {
+                RsDiagnostic.ConstOrTypeParamsInExternError(element).addToHolder(holder)
+            }
+        }
         element.typeParameterList
             .mapNotNull { it.typeReference }
             .forEach {
