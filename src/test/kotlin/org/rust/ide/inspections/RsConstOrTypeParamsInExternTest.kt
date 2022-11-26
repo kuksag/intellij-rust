@@ -38,4 +38,15 @@ class RsConstOrTypeParamsInExternTest : RsInspectionsTestBase(RsConstOrTypeParam
             }
         """
     )
+
+    fun `test E0044 allow lifetime param`() = checkByText(
+        """
+            extern "C" {
+                fn foo<'a>();
+            }
+
+            fn main() {
+            }
+        """
+    )
 }
