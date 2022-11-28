@@ -20,16 +20,12 @@ class RsConstOrTypeParamsInExternInspection : RsLocalInspectionTool() {
         }
 
     private fun inspect(holder: RsProblemsHolder, list: RsTypeParameterList) {
-        list.context?.let { parent ->
-            (parent as? RsFunction)?.takeIf {
-                it.owner == RsAbstractableOwner.Foreign
-            }?.let { function ->
-                function.typeParameterList?.let { generics ->
-                    if (generics.typeParameterList.isNotEmpty() || generics.constParameterList.isNotEmpty()) {
-                        RsDiagnostic.ConstOrTypeParamsInExternError(generics).addToHolder(holder)
-                    }
-                }
-            }
+        val context = list.context ?: return
+        val function = (context as? RsFunction) ?: return
+        if (function.owner != RsAbstractableOwner.Foreign) return
+        val typeParameterList = function.typeParameterList ?: return
+        if (typeParameterList.typeParameterList.isNotEmpty() || typeParameterList.constParameterList.isNotEmpty()) {
+            RsDiagnostic.ConstOrTypeParamsInExternError(typeParameterList).addToHolder(holder)
         }
     }
 }
