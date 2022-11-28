@@ -398,12 +398,12 @@ project(":") {
     }
 
     dependencies {
-        implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-toml:2.14.0") {
+        implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-toml:2.14.1") {
             exclude(module = "jackson-core")
             exclude(module = "jackson-databind")
             exclude(module = "jackson-annotations")
         }
-        api("io.github.z4kn4fein:semver:1.3.3") {
+        api("io.github.z4kn4fein:semver:1.4.0") {
             excludeKotlinDeps()
         }
         testImplementation("com.squareup.okhttp3:mockwebserver:4.10.0")
