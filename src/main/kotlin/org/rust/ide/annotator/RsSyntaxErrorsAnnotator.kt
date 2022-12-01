@@ -13,6 +13,7 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
+import org.rust.RsBundle
 import org.rust.ide.annotator.fixes.AddTypeFix
 import org.rust.ide.inspections.fixes.SubstituteTextFix
 import org.rust.lang.core.CompilerFeature.Companion.C_VARIADIC
@@ -266,7 +267,10 @@ private fun checkTypeParameterList(holder: AnnotationHolder, element: RsTypePara
     if (element.parent is RsImplItem || element.parent is RsFunction) {
         if ((element.parent as? RsFunction)?.owner == RsAbstractableOwner.Foreign) {
             if (element.typeParameterList.isNotEmpty() || element.constParameterList.isNotEmpty()) {
-                RsDiagnostic.ConstOrTypeParamsInExternError(element).addToHolder(holder)
+                holder.newAnnotation(
+                    HighlightSeverity.ERROR,
+                    RsBundle.message("annotator.TypeParamsInExtern")
+                ).range(element).create()
             }
         }
         element.typeParameterList
