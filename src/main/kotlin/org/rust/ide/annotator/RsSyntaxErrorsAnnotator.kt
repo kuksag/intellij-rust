@@ -13,6 +13,7 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.childrenOfType
 import org.rust.ide.annotator.fixes.AddTypeFix
 import org.rust.ide.inspections.fixes.SubstituteTextFix
 import org.rust.lang.core.CompilerFeature.Companion.C_VARIADIC
@@ -23,6 +24,7 @@ import org.rust.lang.utils.RsDiagnostic
 import org.rust.lang.utils.addToHolder
 import org.rust.openapiext.forEachChild
 import org.rust.stdext.capitalized
+import org.rust.stdext.notEmptyOrLet
 import org.rust.stdext.pluralize
 import java.lang.Integer.max
 
@@ -33,6 +35,7 @@ class RsSyntaxErrorsAnnotator : AnnotatorBase() {
             is RsItemElement -> {
                 checkItem(holder, element)
                 when (element) {
+                    is RsImplItem -> checkImplItem(holder, element)
                     is RsFunction -> checkFunction(holder, element)
                     is RsStructItem -> checkStructItem(holder, element)
                     is RsTypeAlias -> checkTypeAlias(holder, element)
@@ -50,6 +53,14 @@ class RsSyntaxErrorsAnnotator : AnnotatorBase() {
             is RsTypeArgumentList -> checkTypeArgumentList(holder, element)
             is RsLetExpr -> checkLetExpr(holder, element)
             is RsPatRange -> checkPatRange(holder, element)
+        }
+    }
+}
+
+private fun checkImplItem(holder: AnnotationHolder, item: RsImplItem) {
+    if (item.excl != null) {
+        item.members?.childrenOfType<RsItemElement>()?.forEach {
+            RsDiagnostic.ItemInNegativeImplError(it).addToHolder(holder)
         }
     }
 }
