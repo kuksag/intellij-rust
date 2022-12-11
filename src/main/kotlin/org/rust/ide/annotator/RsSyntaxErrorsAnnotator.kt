@@ -236,14 +236,22 @@ private fun checkDot3Parameter(holder: AnnotationHolder, dot3: PsiElement?) {
 
 private fun checkValueParameter(holder: AnnotationHolder, param: RsValueParameter) {
     val fn = param.parent.parent as? RsFunction ?: return
+    val isPattern = param.pat != null && (param.pat as? RsPatIdent) == null
     when (fn.owner) {
         is RsAbstractableOwner.Free,
-        is RsAbstractableOwner.Impl,
-        is RsAbstractableOwner.Foreign -> {
+        is RsAbstractableOwner.Impl -> {
             require(param.pat, holder, "${fn.title} cannot have anonymous parameters", param)
         }
+        is RsAbstractableOwner.Foreign -> {
+            require(param.pat, holder, "${fn.title} cannot have anonymous parameters", param)
+            if (isPattern) {
+                RsDiagnostic.PatternArgumentInForeignFunctionError(param).addToHolder(holder)
+            }
+        }
         is RsAbstractableOwner.Trait -> {
-            denyType<RsPatTup>(param.pat, holder, "${fn.title} cannot have tuple parameters", param)
+            if (isPattern && fn.block == null) {
+                RsDiagnostic.PatternArgumentInFunctionWithoutBodyError(param).addToHolder(holder)
+            }
             if (param.pat == null) {
                 val message = "Anonymous functions parameters are deprecated (RFC 1685)"
                 val annotation = holder.newAnnotation(HighlightSeverity.WARNING, message)
