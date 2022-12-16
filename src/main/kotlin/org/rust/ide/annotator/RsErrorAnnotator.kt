@@ -75,6 +75,7 @@ import org.rust.lang.core.resolve.ref.deepResolve
 import org.rust.lang.core.types.*
 import org.rust.lang.core.types.consts.asLong
 import org.rust.lang.core.types.infer.containsTyOfClass
+import org.rust.lang.core.types.infer.selfType
 import org.rust.lang.core.types.infer.substitute
 import org.rust.lang.core.types.ty.*
 import org.rust.lang.utils.RsDiagnostic
@@ -213,7 +214,10 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                 val parameter = args.metaItemList.getOrNull(0) ?: return
                 checkCfgPredicate(holder, parameter)
             }
-            "version" -> { /* version is currently experimental */ }
+
+            "version" -> { /* version is currently experimental */
+            }
+
             else -> {
                 val path = item.path ?: return
                 val fixes = NameSuggestionFix.createApplicable(path, itemName, listOf("all", "any", "not"), 1) { name ->
@@ -324,6 +328,7 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                 }
                 targetMod in reexportVisibility.inMod.superMods
             }
+
             is RsVisibility.Private -> error("unreachable")
         }
     }
@@ -598,10 +603,12 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                     MakePublicFix.createIfCompatible(element, element.name, withinOneCrate)
                 )
             }
+
             ref is RsMethodCall -> RsDiagnostic.AccessError(
                 highlightedElement, E0624, "Method",
                 MakePublicFix.createIfCompatible(element, referenceName, withinOneCrate)
             )
+
             else -> {
                 val itemType = when (element) {
                     is RsItemElement -> element.itemKindName.capitalized()
@@ -734,6 +741,7 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                 RsDiagnostic.SelfImportNotInUseGroup(element).addToHolder(holder)
                 return false
             }
+
             is RsUseGroup -> {
                 val parent3 = parent2.parent
                 val parent4 = parent3.parent
@@ -875,8 +883,10 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                 val fixes = listOfNotNull(CreateLifetimeParameterFromUsageFix.tryCreate(lifetime)).toTypedArray()
                 IN_BAND_LIFETIMES.check(holder, lifetime, "in-band lifetimes", *fixes)
             }
+
             inDeclaration && IN_BAND_LIFETIMES.availability(lifetime) == AVAILABLE ->
                 RsDiagnostic.InBandAndExplicitLifetimesError(lifetime).addToHolder(holder)
+
             else ->
                 RsDiagnostic.UndeclaredLifetimeError(lifetime).addToHolder(holder)
         }
@@ -1108,6 +1118,7 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                 }
                 ta.whereClause?.let { GENERIC_ASSOCIATED_TYPES.check(holder, it, "where clauses on associated types") }
             }
+
             is RsAbstractableOwner.Impl -> {
                 if (owner.isInherent) {
                     INHERENT_ASSOCIATED_TYPES.check(holder, ta, "inherent associated types")
@@ -1118,9 +1129,11 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                 }
                 ta.whereClause?.let { GENERIC_ASSOCIATED_TYPES.check(holder, it, "where clauses on associated types") }
             }
+
             is RsAbstractableOwner.Foreign -> {
                 EXTERN_TYPES.check(holder, ta, "extern types")
             }
+
             else -> {}
         }
 
@@ -1255,6 +1268,7 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
         checkTypesAreSized(holder, fn)
         checkEmptyFunctionReturnType(holder, fn)
         checkRecursiveAsyncFunction(holder, fn)
+        checkTraitConformanceFunction(holder, fn)
 
         fn.innerAttrList.forEach { checkStartAttribute(holder, it) }
         fn.outerAttrList.forEach { checkStartAttribute(holder, it) }
@@ -1310,15 +1324,18 @@ class RsErrorAnnotator : AnnotatorBase(), HighlightRangeExtension {
                     RsDiagnostic.InvalidStartAttrError.InvalidParam(params[0].typeReference ?: params[0], 0)
                         .addToHolder(holder)
                 }
-                if (params[1].typeReference?.normType?.isEquivalentTo(TyPointer(
-                        TyPointer(TyInteger.U8.INSTANCE, Mutability.IMMUTABLE),
-                        Mutability.IMMUTABLE
-                    )) == false
+                if (params[1].typeReference?.normType?.isEquivalentTo(
+                        TyPointer(
+                            TyPointer(TyInteger.U8.INSTANCE, Mutability.IMMUTABLE),
+                            Mutability.IMMUTABLE
+                        )
+                    ) == false
                 ) {
                     RsDiagnostic.InvalidStartAttrError.InvalidParam(params[1].typeReference ?: params[1], 1)
                         .addToHolder(holder)
                 }
             }
+
             else ->
                 RsDiagnostic
                     .InvalidStartAttrError.InvalidOwner(attr.metaItem.path?.referenceNameElement ?: attr.metaItem)
@@ -1610,6 +1627,7 @@ private fun checkDuplicates(
 
             RsDiagnostic.DuplicateBindingError(identifier, name)
         }
+
         element is RsTypeParameter -> RsDiagnostic.DuplicateTypeParameterError(identifier, name)
         owner is RsImplItem -> RsDiagnostic.DuplicateAssociatedItemError(identifier, name)
         else -> {
@@ -1652,7 +1670,9 @@ private fun checkConstGenericsDefaults(holder: RsAnnotationHolder, default: RsEx
         is RsEnumItem,
         is RsTypeAlias,
         is RsTraitItem,
-        null -> {}
+        null -> {
+        }
+
         else -> RsDiagnostic.DefaultsConstGenericNotAllowed(default).addToHolder(holder)
     }
 }
@@ -1684,6 +1704,7 @@ private fun checkParamAttrs(holder: RsAnnotationHolder, o: RsOuterAttributeOwner
             val fix = PARAM_ATTRS.addFeatureFix(startElement)
             RsDiagnostic.ExperimentalFeature(startElement, endElement, message, listOf(fix))
         }
+
         else -> return
     }
     diagnostic.addToHolder(holder)
@@ -1813,6 +1834,7 @@ fun RsCallExpr.getFunctionCallContext(): FunctionCallContext? {
             }
             FunctionCallContext(count + s, functionType, el)
         }
+
         is RsPatBinding -> {
             val type = el.type.stripReferences()
             // TODO: replace with more generic solution
@@ -1826,6 +1848,7 @@ fun RsCallExpr.getFunctionCallContext(): FunctionCallContext? {
                 null
             }
         }
+
         else -> null
     }
 }
@@ -1908,6 +1931,30 @@ private fun checkRecursiveAsyncFunction(holder: RsAnnotationHolder, fn: RsFuncti
     val fix = AddAsyncRecursionAttributeFix.createIfCompatible(fn)
     for (recursiveCall in recursiveCalls) {
         RsDiagnostic.RecursiveAsyncFunction(recursiveCall, fix).addToHolder(holder)
+    }
+}
+
+private fun checkTraitConformanceFunction(holder: RsAnnotationHolder, fn: RsFunction) {
+    if (!fn.owner.isTraitImpl) return
+    val definition = (fn.superItem as? RsFunction) ?: return
+    val name = fn.name ?: return
+    if (!fn.normReturnType.isEquivalentTo(definition.normReturnType)) {
+            RsDiagnostic.FunctionImplDoesntMatchTraitDefError(fn.retType ?: fn, name).addToHolder(holder)
+    }
+    fn.selfType?.let { type ->
+        if (!type.isEquivalentTo(definition.selfType)) {
+            RsDiagnostic.FunctionImplDoesntMatchTraitDefError(
+                fn.selfParameter?.self ?: fn, name
+            ).addToHolder(holder)
+        }
+    }
+    fn.valueParameters.zip(definition.valueParameters).forEach { (lhs, rhs) ->
+        lhs.typeReference?.normType?.let {
+            it.aliasedBy?.element?.typeReference
+            if (!it.isEquivalentTo(rhs.typeReference?.normType)) {
+                RsDiagnostic.FunctionImplDoesntMatchTraitDefError(lhs.typeReference ?: fn, name).addToHolder(holder)
+            }
+        }
     }
 }
 
