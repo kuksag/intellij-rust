@@ -13,6 +13,7 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.parentOfTypes
 import org.rust.ide.annotator.fixes.AddTypeFix
 import org.rust.ide.inspections.fixes.SubstituteTextFix
 import org.rust.lang.core.CompilerFeature.Companion.C_VARIADIC
@@ -29,6 +30,7 @@ import java.lang.Integer.max
 class RsSyntaxErrorsAnnotator : AnnotatorBase() {
     override fun annotateInternal(element: PsiElement, holder: AnnotationHolder) {
         when (element) {
+            is RsBreakExpr -> checkBreakExpr(holder, element)
             is RsExternAbi -> checkExternAbi(holder, element)
             is RsItemElement -> {
                 checkItem(holder, element)
@@ -51,6 +53,16 @@ class RsSyntaxErrorsAnnotator : AnnotatorBase() {
             is RsLetExpr -> checkLetExpr(holder, element)
             is RsPatRange -> checkPatRange(holder, element)
         }
+    }
+}
+
+private fun checkBreakExpr(holder: AnnotationHolder, item: RsBreakExpr) {
+    item.expr ?: return
+    val loop = (item.label?.reference?.resolve()
+        ?: item).parentOfTypes(RsForExpr::class, RsWhileExpr::class, RsLoopExpr::class)
+    when (loop) {
+        is RsForExpr -> RsDiagnostic.BreakExprInNonLoopError(item, "for").addToHolder(holder)
+        is RsWhileExpr -> RsDiagnostic.BreakExprInNonLoopError(item, "while").addToHolder(holder)
     }
 }
 
