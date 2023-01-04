@@ -13,6 +13,8 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.childrenOfType
+import com.intellij.psi.util.parentOfType
 import org.rust.ide.annotator.fixes.AddTypeFix
 import org.rust.ide.inspections.fixes.SubstituteTextFix
 import org.rust.lang.core.CompilerFeature.Companion.C_VARIADIC
@@ -49,7 +51,18 @@ class RsSyntaxErrorsAnnotator : AnnotatorBase() {
             is RsTypeParameterList -> checkTypeParameterList(holder, element)
             is RsTypeArgumentList -> checkTypeArgumentList(holder, element)
             is RsLetExpr -> checkLetExpr(holder, element)
+            is RsLambdaExpr -> checkLambdaExpr(holder, element)
             is RsPatRange -> checkPatRange(holder, element)
+        }
+    }
+}
+
+private fun checkLambdaExpr(holder: AnnotationHolder, item: RsLambdaExpr) {
+    item.static?.let { static ->
+        // RsLambdaExpr may be static if it's a generator
+        // The lambda is a generator iff at least one `yield` corresponds to the lambda
+        if (item.descendantsOfType<RsYieldExpr>().none { it.parentOfType<RsLambdaExpr>() == item }) {
+            RsDiagnostic.StaticWithClosuresError(static).addToHolder(holder)
         }
     }
 }

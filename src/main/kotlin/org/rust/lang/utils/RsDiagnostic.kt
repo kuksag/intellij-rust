@@ -1605,6 +1605,16 @@ sealed class RsDiagnostic(
             "Foreign items may not have $kinds parameters"
         )
     }
+
+    class StaticWithClosuresError(
+        element: PsiElement
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            E0697,
+            "Closures cannot be static"
+        )
+    }
 }
 
 enum class RsErrorCode {
@@ -1614,7 +1624,7 @@ enum class RsErrorCode {
     E0308, E0322, E0328, E0364, E0365, E0379, E0384,
     E0403, E0404, E0407, E0415, E0416, E0424, E0426, E0428, E0429, E0430, E0431, E0433, E0434, E0435, E0437, E0438, E0449, E0451, E0463,
     E0517, E0518, E0537, E0552, E0554, E0562, E0569, E0583, E0586, E0594,
-    E0601, E0603, E0614, E0616, E0618, E0624, E0658, E0666, E0667, E0695,
+    E0601, E0603, E0614, E0616, E0618, E0624, E0658, E0666, E0667, E0688, E0695, E0697,
     E0703, E0704, E0728, E0732, E0733, E0741, E0742, E0747, E0774;
 
     val code: String
