@@ -59,7 +59,20 @@ class RsSyntaxErrorsAnnotator : AnnotatorBase() {
             is RsTypeArgumentList -> checkTypeArgumentList(holder, element)
             is RsLetExpr -> checkLetExpr(holder, element)
             is RsPatRange -> checkPatRange(holder, element)
+            is RsOuterAttr -> checkRsOuterAttr(holder, element)
         }
+    }
+}
+
+private fun checkRsOuterAttr(holder: AnnotationHolder, item: RsOuterAttr) {
+    val namesSet = mutableSetOf<String>()
+    for (arg in item.metaItem.metaItemArgsList) {
+        val name = arg.name ?: continue
+        if (arg !is RsMetaItem) continue
+        if (namesSet.contains(name)) {
+            RsDiagnostic.AttributeContainsMetaItemSeveralTimesError(arg, name, listOf(RemoveElementFix(arg))).addToHolder(holder)
+        }
+        namesSet.add(name)
     }
 }
 
