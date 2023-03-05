@@ -9,6 +9,7 @@ import com.intellij.lang.ASTNode
 import com.intellij.psi.stubs.IStubElementType
 import com.intellij.util.ProcessingContext
 import org.rust.lang.core.RsPsiPattern
+import org.rust.lang.core.psi.AttributeTemplate
 import org.rust.lang.core.psi.RsMetaItem
 import org.rust.lang.core.psi.RsMetaItemArgs
 import org.rust.lang.core.psi.RsTraitItem
@@ -89,3 +90,23 @@ abstract class RsMetaItemImplMixin : RsStubbedElementImpl<RsMetaItemStub>,
 
     override val value: String? get() = litExpr?.stringValue
 }
+
+/** AttributeTemplate type from builtin meta attributes **/
+enum class AttributeTemplateType {
+    Word,
+    List,
+    NameValueStr,
+}
+
+val RsMetaItem.templateType: AttributeTemplateType
+    get() {
+        return if (metaItemArgs?.litExprList?.isNotEmpty() == true ||
+            metaItemArgs?.metaItemList?.isNotEmpty() == true
+        ) {
+            AttributeTemplateType.List
+        } else if (eq != null) {
+            AttributeTemplateType.NameValueStr
+        } else {
+            AttributeTemplateType.Word
+        }
+    }
