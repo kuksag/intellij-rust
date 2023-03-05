@@ -1670,6 +1670,20 @@ sealed class RsDiagnostic(
             "`break` with value from a `$kind` loop"
         )
     }
+
+    class WrongMetaDelimiters(
+        beginElement: PsiElement,
+        endElement: PsiElement,
+        private val fix: LocalQuickFix
+    ) : RsDiagnostic(beginElement, endElement) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            null,
+            "Wrong meta list delimiters",
+            description = "The delimiters should be `(` and `)`",
+            fixes = listOf(fix),
+        )
+    }
 }
 
 enum class RsErrorCode {
