@@ -1684,6 +1684,20 @@ sealed class RsDiagnostic(
             fixes = listOf(fix),
         )
     }
+
+    class MalformedAttributeInput(
+        // TODO: fixes?
+        element: PsiElement,
+        private val name: String,
+        private val suggestions: String
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            null,
+            "Malformed `${name}` attribute input",
+            description = suggestions,
+        )
+    }
 }
 
 enum class RsErrorCode {
