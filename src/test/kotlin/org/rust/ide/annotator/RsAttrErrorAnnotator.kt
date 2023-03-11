@@ -56,4 +56,20 @@ class RsAttrErrorAnnotatorTest : RsAnnotatorTestBase(RsAttrErrorAnnotator::class
         #[<error descr="Malformed `rustc_must_implement_one_of` attribute input">rustc_must_implement_one_of</error>]
         trait Tr3 {}
     """)
+
+    fun `test check literal with suffixes in attrs`() = checkByText("""
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1usize</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u8</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u16</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u32</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u64</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1isize</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1i8</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1i16</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1i32</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1i64</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1.0f32</error>)]
+        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1.0f64</error>)]
+        fn bar<const X: usize>() {}
+    """)
 }

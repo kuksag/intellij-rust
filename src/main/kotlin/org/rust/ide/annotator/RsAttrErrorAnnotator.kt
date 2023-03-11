@@ -18,9 +18,24 @@ class RsAttrErrorAnnotator : AnnotatorBase() {
         if (element !is RsMetaItem) return
         checkMetaBadDelim(element, holder)
         checkAttrTemplateCompatible(element, holder)
+        checkLiteralSuffix(element, holder)
     }
 }
 
+private fun checkLiteralSuffix(metaItem: RsMetaItem, holder: AnnotationHolder) {
+    val exprList = metaItem.metaItemArgs?.litExprList ?: return
+    for (expr in exprList) {
+        val kind = expr.kind
+        if (kind is RsLiteralWithSuffix) {
+            val suffix = kind.suffix ?: continue
+            val editedText = expr.text.removeSuffix(suffix)
+            val fix = SubstituteTextFix.replace(
+                "Remove suffix", metaItem.containingFile, expr.textRange, editedText
+            )
+            RsDiagnostic.AttributeSuffixedLiteral(expr, fix).addToHolder(holder)
+        }
+    }
+}
 
 private fun checkAttrTemplateCompatible(metaItem: RsMetaItem, holder: AnnotationHolder) {
     val name = (metaItem.path ?: return).text

@@ -1686,7 +1686,6 @@ sealed class RsDiagnostic(
     }
 
     class MalformedAttributeInput(
-        // TODO: fixes?
         element: PsiElement,
         private val name: String,
         private val suggestions: String
@@ -1696,6 +1695,19 @@ sealed class RsDiagnostic(
             null,
             "Malformed `${name}` attribute input",
             description = suggestions,
+        )
+    }
+
+    class AttributeSuffixedLiteral(
+        element: PsiElement,
+        private val fix: LocalQuickFix
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            null,
+            "Suffixed literals are not allowed in attributes",
+            description = "Instead of using a suffixed literal (`1u8`, `1.0f32`, etc.), use an unsuffixed version (`1`, `\n" + "1.0`, etc.)",
+            fixes = listOf(fix)
         )
     }
 }
