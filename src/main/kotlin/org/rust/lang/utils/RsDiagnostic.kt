@@ -558,7 +558,7 @@ sealed class RsDiagnostic(
         }
     }
 
-    class CastAsBoolError(val castExpr: RsCastExpr) : RsDiagnostic(castExpr) {
+    class CastAsBoolError(private val castExpr: RsCastExpr) : RsDiagnostic(castExpr) {
         override fun prepare() = PreparedAnnotation(
             ERROR,
             E0054,
@@ -567,7 +567,7 @@ sealed class RsDiagnostic(
         )
     }
 
-    class ConstItemReferToStaticError(element: RsElement, val constContext: RsConstContextKind) : RsDiagnostic(element) {
+    class ConstItemReferToStaticError(element: RsElement, private val constContext: RsConstContextKind) : RsDiagnostic(element) {
         override fun prepare() = PreparedAnnotation(
             ERROR,
             E0013,
@@ -1707,7 +1707,17 @@ sealed class RsDiagnostic(
             null,
             "Suffixed literals are not allowed in attributes",
             description = "Instead of using a suffixed literal (`1u8`, `1.0f32`, etc.), use an unsuffixed version (`1`, `\n" + "1.0`, etc.)",
-            fixes = listOf(fix)
+            fixes = listOf(fix),
+        )
+    }
+
+    class AtLeastOneTraitForObjectTypeError(
+        element: PsiElement
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            E0224,
+            "At least one trait is required for an object type"
         )
     }
 }
@@ -1715,7 +1725,7 @@ sealed class RsDiagnostic(
 enum class RsErrorCode {
     E0004, E0013, E0015, E0023, E0025, E0026, E0027, E0040, E0044, E0046, E0049, E0050, E0054, E0057, E0060, E0061, E0069, E0081, E0084,
     E0106, E0107, E0116, E0117, E0118, E0120, E0121, E0124, E0130, E0131, E0132, E0133, E0184, E0185, E0186, E0191, E0197, E0198, E0199,
-    E0200, E0201, E0203, E0220, E0252, E0254, E0255, E0259, E0260, E0261, E0262, E0263, E0267, E0268, E0277,
+    E0200, E0201, E0203, E0220, E0224, E0252, E0254, E0255, E0259, E0260, E0261, E0262, E0263, E0267, E0268, E0277,
     E0308, E0322, E0328, E0364, E0365, E0379, E0384,
     E0403, E0404, E0407, E0415, E0416, E0424, E0426, E0428, E0429, E0430, E0431, E0433, E0434, E0435, E0437, E0438, E0449, E0451, E0463,
     E0517, E0518, E0537, E0552, E0554, E0562, E0569, E0571, E0583, E0586, E0594,
@@ -1793,15 +1803,13 @@ fun RsDiagnostic.addToHolder(holder: AnnotationHolder) {
 
 fun RsDiagnostic.addToHolder(holder: RsProblemsHolder) {
     val prepared = prepare()
-    val descriptor = holder.manager.createProblemDescriptor(
+    holder.registerProblem(
         element,
         endElement ?: element,
         prepared.fullDescription,
         prepared.severity.toProblemHighlightType(),
-        holder.isOnTheFly,
         *prepared.fixes.toTypedArray()
     )
-    holder.registerProblem(descriptor)
 }
 
 private val PreparedAnnotation.fullDescription: String
