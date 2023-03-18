@@ -94,7 +94,7 @@ private fun checkLiteralSuffix(metaItem: RsMetaItem, holder: AnnotationHolder) {
 }
 
 private fun checkAttrTemplateCompatible(metaItem: RsMetaItem, holder: AnnotationHolder) {
-    val name = (metaItem.path ?: return).text
+    val name = metaItem.name ?: return
     val attrInfo = (RS_BUILTIN_ATTRIBUTES[name] as? BuiltinAttributeInfo) ?: return
     val template = attrInfo.template
     var isError = false
