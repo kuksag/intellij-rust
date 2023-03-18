@@ -72,4 +72,43 @@ class RsAttrErrorAnnotatorTest : RsAnnotatorTestBase(RsAttrErrorAnnotator::class
         #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1.0f64</error>)]
         fn bar<const X: usize>() {}
     """)
+
+    fun `test check duplicates`() = checkByText("""
+        #[<warning descr="Unused attribute">ignore</warning>]
+        #[ignore]
+        fn foo() {}
+
+
+        #[<warning descr="Unused attribute">macro_use</warning>]
+        #[macro_use(lazy_static)]
+        #[macro_use]
+        extern crate a;
+
+        #[<error descr="Multiple 'proc_macro' attributes">proc_macro</error>]
+        #[proc_macro]
+        pub fn make_answer(_item: TokenStream) -> TokenStream {
+            "fn answer() -> u32 { 42 }".parse().unwrap()
+        }
+
+        #[instruction_set(arm::a32)]
+        #[<error descr="Multiple 'instruction_set' attributes">instruction_set(arm::a32)</error>]
+        fn foo_arm_code() {}
+
+        #[<warning descr="Unused attribute">should_panic(expected = "values don't match")</warning>]
+        #[should_panic(expected = "values don't match")]
+        fn mytest() {
+            assert_eq!(1, 2, "values don't match");
+        }
+
+        extern {
+            #[link_name = "actual_symbol_name"]
+            #[<warning descr="Unused attribute">link_name = "actual_symbol_name"</warning>]
+            fn name_in_rust();
+        }
+
+
+        #[cfg_attr(unix, cfg_attr(unix, <warning descr="Unused attribute">macro_use</warning>))]
+        #[cfg_attr(unix, cfg_attr(unix, macro_use))]
+        fn nested_cfg() {}
+    """)
 }

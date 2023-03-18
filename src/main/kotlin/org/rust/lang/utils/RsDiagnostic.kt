@@ -1720,6 +1720,33 @@ sealed class RsDiagnostic(
             "At least one trait is required for an object type"
         )
     }
+
+    class UnusedAttribute(
+        element: PsiElement,
+        private val fix: LocalQuickFix,
+        private val isFutureWarning: Boolean = false
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            WARN,
+            null,
+            "Unused attribute",
+            description = if (isFutureWarning) "This was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!" else "",
+            fixes = listOf(fix)
+        )
+    }
+
+    class MultipleAttributes(
+        element: PsiElement,
+        private val name: String,
+        private val fix: LocalQuickFix
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            null,
+            "Multiple '$name' attributes",
+            fixes = listOf(fix),
+        )
+    }
 }
 
 enum class RsErrorCode {

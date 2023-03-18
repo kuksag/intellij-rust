@@ -7,18 +7,74 @@ package org.rust.ide.annotator
 
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.psi.PsiElement
+import org.rust.ide.annotator.fixes.RemoveElementFix
 import org.rust.ide.inspections.fixes.SubstituteTextFix
 import org.rust.lang.core.psi.*
-import org.rust.lang.core.psi.ext.elementType
+import org.rust.lang.core.psi.ext.*
 import org.rust.lang.utils.RsDiagnostic
 import org.rust.lang.utils.addToHolder
 
 class RsAttrErrorAnnotator : AnnotatorBase() {
     override fun annotateInternal(element: PsiElement, holder: AnnotationHolder) {
-        if (element !is RsMetaItem) return
-        checkMetaBadDelim(element, holder)
-        checkAttrTemplateCompatible(element, holder)
-        checkLiteralSuffix(element, holder)
+        when (element) {
+            is RsMetaItem -> {
+                checkMetaBadDelim(element, holder)
+                checkAttrTemplateCompatible(element, holder)
+                checkLiteralSuffix(element, holder)
+            }
+
+            is RsDocAndAttributeOwner -> checkRsDocAndAttributeOwner(element, holder)
+        }
+    }
+}
+
+private fun checkRsDocAndAttributeOwner(element: RsDocAndAttributeOwner, holder: AnnotationHolder) {
+    val attrs = element.queryAttributes.metaItems
+    val duplicates = attrs.filter { it.name in RS_BUILTIN_ATTRIBUTES }.groupBy { it.name }
+
+    // Used for better fix-removal
+    fun getFix(item: RsMetaItem): RemoveElementFix {
+        val parent = item.parent
+        if (parent is RsOuterAttr || parent is RsInnerAttr) return RemoveElementFix(parent)
+        return RemoveElementFix(item)
+    }
+
+    for ((name, entries) in duplicates) {
+        if (name == null) continue
+        if (entries.size == 1) continue
+        val attrInfo = (RS_BUILTIN_ATTRIBUTES[name] as? BuiltinAttributeInfo) ?: continue
+        when (attrInfo.duplicates) {
+            AttributeDuplicates.DuplicatesOk -> continue
+
+            AttributeDuplicates.WarnFollowing -> {
+                RsDiagnostic.UnusedAttribute(entries.first(), getFix(entries.last())).addToHolder(holder)
+            }
+
+            AttributeDuplicates.WarnFollowingWordOnly -> {
+                val wordStyleArgs = entries.filter { it.templateType == AttributeTemplateType.Word }
+                if (wordStyleArgs.size == 1) continue
+                RsDiagnostic.UnusedAttribute(wordStyleArgs.first(), getFix(wordStyleArgs.last())).addToHolder(holder)
+            }
+
+            AttributeDuplicates.ErrorFollowing -> {
+                RsDiagnostic.MultipleAttributes(entries.first(), name, getFix(entries.last())).addToHolder(holder)
+            }
+
+            AttributeDuplicates.ErrorPreceding -> {
+                RsDiagnostic.MultipleAttributes(entries.last(), name, getFix(entries.first())).addToHolder(holder)
+            }
+
+            AttributeDuplicates.FutureWarnFollowing -> {
+                RsDiagnostic.UnusedAttribute(entries.first(), getFix(entries.last()), isFutureWarning = true)
+                    .addToHolder(holder)
+            }
+
+            AttributeDuplicates.FutureWarnPreceding -> {
+                RsDiagnostic.UnusedAttribute(entries.last(), getFix(entries.first()), isFutureWarning = true)
+                    .addToHolder(holder)
+            }
+        }
+
     }
 }
 
@@ -41,22 +97,37 @@ private fun checkAttrTemplateCompatible(metaItem: RsMetaItem, holder: Annotation
     val name = (metaItem.path ?: return).text
     val attrInfo = (RS_BUILTIN_ATTRIBUTES[name] as? BuiltinAttributeInfo) ?: return
     val template = attrInfo.template
-    val argsPresent = metaItem.metaItemArgs?.litExprList?.isEmpty() ?: false ||
-        metaItem.metaItemArgs?.metaItemList?.isEmpty() ?: false
-    if (argsPresent) {
-        if (template.list == null) {
-            emitMalformedAttribute(metaItem, name, template, holder)
+    var isError = false
+    when (metaItem.templateType) {
+        AttributeTemplateType.List -> {
+            if (template.list == null) {
+                isError = true
+            }
         }
-    } else if (metaItem.eq != null) {
-        if (template.nameValueStr == null) {
-            emitMalformedAttribute(metaItem, name, template, holder)
+
+        AttributeTemplateType.NameValueStr -> {
+            if (template.nameValueStr == null) {
+                isError = true
+            }
         }
-    } else if (!template.word) {
+
+        AttributeTemplateType.Word -> {
+            if (!template.word) {
+                isError = true
+            }
+        }
+    }
+    if (isError) {
         emitMalformedAttribute(metaItem, name, template, holder)
     }
 }
 
-private fun emitMalformedAttribute(metaItem: RsMetaItem, name: String, template: AttributeTemplate, holder: AnnotationHolder) {
+private fun emitMalformedAttribute(
+    metaItem: RsMetaItem,
+    name: String,
+    template: AttributeTemplate,
+    holder: AnnotationHolder
+) {
     val inner = if (metaItem.context is RsInnerAttr) "!" else ""
     var first = true
     val stringBuilder = StringBuilder()
@@ -87,15 +158,16 @@ private fun setParen(text: String): String {
 }
 
 private fun checkMetaBadDelim(element: RsMetaItem, holder: AnnotationHolder) {
-    val openDelim = element.compactTT?.children?.first {
+    val openDelim = element.compactTT?.children?.firstOrNull {
         it.elementType == RsElementTypes.EQ ||
             it.elementType == RsElementTypes.LBRACE ||
             it.elementType == RsElementTypes.LBRACK
     }
         ?: return
     if (openDelim.elementType == RsElementTypes.EQ) return
-    val closingDelim = element.compactTT?.children?.last { it.elementType == RsElementTypes.RBRACE || it.elementType == RsElementTypes.RBRACK }
-        ?: return
+    val closingDelim =
+        element.compactTT?.children?.lastOrNull { it.elementType == RsElementTypes.RBRACE || it.elementType == RsElementTypes.RBRACK }
+            ?: return
     when (Pair(openDelim.elementType, closingDelim.elementType)) {
         Pair(RsElementTypes.LBRACE, RsElementTypes.RBRACE), Pair(RsElementTypes.LBRACK, RsElementTypes.RBRACK) -> {
             val fixedText = setParen(element.text)
