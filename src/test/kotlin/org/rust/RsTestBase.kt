@@ -31,6 +31,7 @@ import org.rust.cargo.project.workspace.PackageFeature
 import org.rust.cargo.toolchain.RustChannel
 import org.rust.cargo.toolchain.impl.RustcVersion
 import org.rust.cargo.util.parseSemVer
+import org.rust.ide.experiments.RsExperiments
 import org.rust.ide.settings.ExcludedPath
 import org.rust.ide.settings.ExclusionType
 import org.rust.ide.settings.RsCodeInsightSettings
@@ -49,10 +50,28 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
     private var tempDirRoot: VirtualFile? = null
 
     override fun getProjectDescriptor(): LightProjectDescriptor {
-        val annotation = findAnnotationInstance<ProjectDescriptor>() ?: return DefaultDescriptor
-        return annotation.descriptor.objectInstance
-            ?: error("Only Kotlin objects defined with `object` keyword are allowed")
+        val baseDesc = run {
+            val annotation = findAnnotationInstance<ProjectDescriptor>() ?: return@run DefaultDescriptor
+            return@run (annotation.descriptor.objectInstance
+                ?: error("Only Kotlin objects defined with `object` keyword are allowed"))
+        }
+        val testWrapping = testWrapping
+        if (shouldSkipTestWrapping(testWrapping)) {
+            shouldSkipTestWithCurrentWrapping = true
+            return baseDesc
+        }
+        val wrappedDesc = (baseDesc as? RustProjectDescriptorBase)?.let { testWrapping.wrapProjectDescriptor(it) }
+        return if (wrappedDesc == null) {
+            shouldSkipTestWithCurrentWrapping = true
+            baseDesc
+        } else {
+            wrappedDesc
+        }
     }
+
+    open val testWrapping: TestWrapping get() = TestWrapping.NONE
+    private var shouldSkipTestWithCurrentWrapping: Boolean = false
+    protected var testWrappingUnwrapper: TestUnwrapper? = null
 
     override fun isWriteActionRequired(): Boolean = false
 
@@ -72,9 +91,12 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
         setupExperimentalFeatures()
         setupInspections()
         setupExcludedPaths()
-        findAnnotationInstance<ExpandMacros>()?.let {
-            val disposable = project.macroExpansionManager.setUnitTestExpansionModeAndDirectory(it.mode, it.cache)
-            Disposer.register(testRootDisposable, disposable)
+        if (findAnnotationInstance<WithDisabledMacroExpansion>() != null) {
+            val mgr = project.macroExpansionManager
+            mgr.setMacroExpansionEnabled(false)
+            Disposer.register(testRootDisposable) {
+                mgr.setMacroExpansionEnabled(true)
+            }
         }
         RecursionManager.disableMissedCacheAssertions(testRootDisposable)
         tempDirRoot = myFixture.findFileInTempDir(".")
@@ -85,7 +107,6 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
         val oldTempDirRootUrl = tempDirRootUrl
         val newTempDirRootUrl = tempDirRoot?.url
         super.tearDown()
-        checkMacroExpansionFileSystemAfterTest()
         // Check that temp root directory was not renamed during the test
         if (oldTempDirRootUrl != null && oldTempDirRootUrl != newTempDirRootUrl) {
             if (newTempDirRootUrl != null) {
@@ -165,6 +186,10 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
         for (feature in findAnnotationInstance<WithoutExperimentalFeatures>()?.features.orEmpty()) {
             setExperimentalFeatureEnabled(feature, false, testRootDisposable)
         }
+
+        if (testWrapping != TestWrapping.NONE) {
+            setExperimentalFeatureEnabled(RsExperiments.PROC_MACROS, true, testRootDisposable)
+        }
     }
 
     private fun setupInspections() {
@@ -221,15 +246,27 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
 
         val testmark = collectTestmarksFromAnnotations()
 
-        if (findAnnotationInstance<BothEditions>() != null) {
-            if (findAnnotationInstance<MockEdition>() != null) {
-                error("Can't mix `BothEditions` and `MockEdition` annotations")
+        try {
+            if (findAnnotationInstance<BothEditions>() != null) {
+                if (findAnnotationInstance<MockEdition>() != null) {
+                    error("Can't mix `BothEditions` and `MockEdition` annotations")
+                }
+                // These functions exist to simplify stacktrace analyzing
+                testmark.checkHit { runTestEdition2015(testRunnable) }
+                testmark.checkHit { runTestEdition2018(testRunnable) }
+            } else {
+                testmark.checkHit { super.runTestRunnable(testRunnable) }
             }
-            // These functions exist to simplify stacktrace analyzing
-            testmark.checkHit { runTestEdition2015(testRunnable) }
-            testmark.checkHit { runTestEdition2018(testRunnable) }
-        } else {
-            testmark.checkHit { super.runTestRunnable(testRunnable) }
+        } catch (t: Throwable) {
+            val testWrapping = testWrapping
+            if (testWrapping != TestWrapping.NONE) {
+                println("Note: this test was run using `${TestWrapping::class.simpleName}.${testWrapping.name}`.")
+                println("      This means that the test content was $testWrapping.")
+                println("      If the test is not supposed to work with wrapping, use " +
+                    "`@${SkipTestWrapping::class.simpleName}` annotation")
+                System.out.flush()
+            }
+            throw t
         }
     }
 
@@ -237,12 +274,21 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
         get() {
             val projectDescriptor = projectDescriptor as? RustProjectDescriptorBase
             return projectDescriptor?.skipTestReason ?: run {
+                if (shouldSkipTestWithCurrentWrapping) {
+                    return "this test is marked to skip the wrapping `${testWrapping.name}`"
+                }
                 checkRustcVersionRequirements {
                     val rustcVersion = projectDescriptor?.rustcInfo?.version?.semver
                     if (rustcVersion != null) RsResult.Ok(rustcVersion) else RsResult.Err(null)
                 }
             }
         }
+
+    private fun shouldSkipTestWrapping(testWrapping: TestWrapping): Boolean {
+        if (testWrapping == TestWrapping.NONE) return false
+        val skipWrapping = findAnnotationInstance<SkipTestWrapping>()
+        return skipWrapping != null && (skipWrapping.wrapping.isEmpty() || testWrapping in skipWrapping.wrapping)
+    }
 
     private fun runTestEdition2015(testRunnable: ThrowableRunnable<Throwable>) {
         project.testCargoProjects.withEdition(Edition.EDITION_2015) {
@@ -366,9 +412,13 @@ abstract class RsTestBase : BasePlatformTestCase(), RsTestCase {
 
     protected inline fun <reified X : Throwable> expect(f: () -> Unit) = org.rust.expect<X>(f)
 
-    @Suppress("TestFunctionName")
+        @Suppress("TestFunctionName")
     protected fun InlineFile(@Language("Rust") code: String, name: String = "main.rs"): InlineFile {
-        return InlineFile(myFixture, code, name)
+        val (code2, unwrapper) = testWrapping.wrapCode(project, code)
+        val inlineFile = InlineFile(myFixture, code2, name)
+        unwrapper?.init(myFixture.file)
+        this.testWrappingUnwrapper = unwrapper
+        return inlineFile
     }
 
     protected inline fun <reified T : PsiElement> findElementInEditor(marker: String = "^"): T =

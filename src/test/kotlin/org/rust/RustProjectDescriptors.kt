@@ -35,6 +35,8 @@ import org.rust.cargo.toolchain.tools.rustup
 import org.rust.cargo.toolchain.wsl.RsWslToolchain
 import org.rust.cargo.util.DownloadResult
 import org.rust.ide.experiments.RsExperiments
+import org.rust.lang.core.macros.MacroExpansionScope
+import org.rust.lang.core.macros.macroExpansionManager
 import org.rust.openapiext.RsPathManager
 import org.rust.stdext.HashCode
 import org.rust.stdext.unwrapOrThrow
@@ -73,8 +75,8 @@ object WithProcMacroAndDependencyRustProjectDescriptor : WithProcMacros(WithDepe
 open class RustProjectDescriptorBase : LightProjectDescriptor() {
 
     open val skipTestReason: String? = null
-
     open val rustcInfo: RustcInfo? = null
+    open val macroExpansionCachingKey: String? = null
 
     final override fun configureModule(module: Module, model: ModifiableRootModel, contentEntry: ContentEntry) {
         super.configureModule(module, model, contentEntry)
@@ -83,6 +85,11 @@ open class RustProjectDescriptorBase : LightProjectDescriptor() {
         val projectDir = contentEntry.file!!
         val ws = testCargoProject(module, projectDir.url)
         module.project.testCargoProjects.createTestProject(projectDir, ws, rustcInfo)
+
+        val disposable = module.project.macroExpansionManager
+            .setUnitTestExpansionModeAndDirectory(MacroExpansionScope.ALL, macroExpansionCachingKey.orEmpty())
+        @Suppress("IncorrectParentDisposable") // It's fine for a unit test
+        Disposer.register(module, disposable)
     }
 
     open fun setUp(fixture: CodeInsightTestFixture) {}
@@ -191,6 +198,9 @@ open class WithRustup(
         toolchain?.getRustcInfo()
     }
 
+    override val macroExpansionCachingKey: String?
+        get() = if (fetchActualStdlibMetadata) "actual_std" else "std"
+
     private var hardcodedStdlibIsInitialized: Boolean = false
     private var hardcodedStdlib: StandardLibrary? = null
 
@@ -255,12 +265,49 @@ open class WithRustup(
 open class WithProcMacros(
     private val delegate: RustProjectDescriptorBase
 ) : RustProjectDescriptorBase() {
+    override val skipTestReason: String?
+        get() = ProcMacroPackageHolder.skipTestReason ?: delegate.skipTestReason
+
+    override val rustcInfo: RustcInfo?
+        get() = delegate.rustcInfo ?: ProcMacroPackageHolder.rustcInfo
+
+    override fun testCargoProject(module: Module, contentRoot: String): CargoWorkspace {
+        val procMacroPackage = ProcMacroPackageHolder.getOrFetchMacroPackage(module.project)
+        check(procMacroPackage != null) { "Proc macro crate is not compiled successfully" }
+        return delegate.testCargoProject(module, contentRoot).withImplicitDependency(procMacroPackage)
+    }
+
+    override fun setUp(fixture: CodeInsightTestFixture) {
+        delegate.setUp(fixture)
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as WithProcMacros
+
+        if (delegate != other.delegate) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        return delegate.hashCode()
+    }
+
+    companion object {
+        const val TEST_PROC_MACROS: String = "test-proc-macros"
+    }
+}
+
+private object ProcMacroPackageHolder {
     private val toolchain: RsToolchainBase? by lazy { RsToolchainBase.suggest() }
 
     private var procMacroPackageIsInitialized: Boolean = false
     private var procMacroPackage: Package? = null
 
-    override val skipTestReason: String?
+    val skipTestReason: String?
         get() {
             if (toolchain == null) {
                 return "No toolchain"
@@ -269,47 +316,36 @@ open class WithProcMacros(
                 System.getenv("CI") == null) {
                 return "no native-helper executable"
             }
-            return delegate.skipTestReason
+            return null
         }
 
-    override val rustcInfo: RustcInfo? by lazy {
-        delegate.rustcInfo ?: toolchain?.getRustcInfo()
+    val rustcInfo: RustcInfo? by lazy {
+        toolchain?.getRustcInfo()
     }
 
-    private fun getOrFetchMacroPackage(project: Project): Package? = if (procMacroPackageIsInitialized) {
+    fun getOrFetchMacroPackage(project: Project): Package? = if (procMacroPackageIsInitialized) {
         procMacroPackage
     } else {
         procMacroPackageIsInitialized = true
         val disposable = Disposer.newDisposable("testCargoProject")
         try {
             setExperimentalFeatureEnabled(RsExperiments.EVALUATE_BUILD_SCRIPTS, true, disposable)
-            val testProcMacroProjectPath = Path.of("testData/$TEST_PROC_MACROS")
-            fullyRefreshDirectoryInUnitTests(LocalFileSystem.getInstance().findFileByNioFile(testProcMacroProjectPath)!!)
+            val testProcMacroProjectPath = Path.of("testData/${WithProcMacros.TEST_PROC_MACROS}")
+            val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(testProcMacroProjectPath)
+                ?: error("test-proc-macros project is not found in the VFS! " +
+                    "Absolute path: ${testProcMacroProjectPath.toAbsolutePath()}")
+            fullyRefreshDirectoryInUnitTests(virtualFile)
             val (testProcMacroProject, _) = toolchain!!.cargo().fullProjectDescription(
                 project,
                 testProcMacroProjectPath,
                 rustcVersion = rustcInfo?.version,
             ).unwrapOrThrow()
-            procMacroPackage = testProcMacroProject.packages.find { it.name == TEST_PROC_MACROS }!!
+            procMacroPackage = testProcMacroProject.packages.find { it.name == WithProcMacros.TEST_PROC_MACROS }!!
                 .copy(origin = PackageOrigin.DEPENDENCY)
             procMacroPackage
         } finally {
             Disposer.dispose(disposable)
         }
-    }
-
-    override fun testCargoProject(module: Module, contentRoot: String): CargoWorkspace {
-        val procMacroPackage1 = getOrFetchMacroPackage(module.project)
-        check(procMacroPackage1 != null) { "Proc macro crate is not compiled successfully" }
-        return delegate.testCargoProject(module, contentRoot).withImplicitDependency(procMacroPackage1)
-    }
-
-    override fun setUp(fixture: CodeInsightTestFixture) {
-        delegate.setUp(fixture)
-    }
-
-    companion object {
-        const val TEST_PROC_MACROS: String = "test-proc-macros"
     }
 }
 

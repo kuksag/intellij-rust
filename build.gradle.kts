@@ -1,5 +1,4 @@
 import groovy.xml.XmlParser
-import org.apache.tools.ant.taskdefs.condition.Os.*
 import org.gradle.api.JavaVersion.VERSION_17
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
@@ -44,23 +43,24 @@ val mlCompletionPlugin = "com.intellij.completion.ml.ranking"
 
 val compileNativeCodeTaskName = "compileNativeCode"
 
-val grammarKitFakePsiDepsProjectDir = "grammar-kit-fake-psi-deps"
-val grammarKitFakePsiDepsProject = ":$grammarKitFakePsiDepsProjectDir"
+val grammarKitFakePsiDeps = "grammar-kit-fake-psi-deps"
+
+val basePluginArchiveName = "intellij-rust"
 
 plugins {
     idea
-    kotlin("jvm") version "1.8.10"
-    id("org.jetbrains.intellij") version "1.12.0"
+    kotlin("jvm") version "1.8.20"
+    id("org.jetbrains.intellij") version "1.13.1"
     id("org.jetbrains.grammarkit") version "2022.3.1"
     id("net.saliman.properties") version "1.5.2"
-    id("org.gradle.test-retry") version "1.5.1"
+    id("org.gradle.test-retry") version "1.5.2"
 }
 
 idea {
     module {
         // https://github.com/gradle/kotlin-dsl/issues/537/
         excludeDirs = excludeDirs + file("testData") + file("deps") + file("bin") +
-            file("$grammarKitFakePsiDepsProjectDir/src/main/kotlin")
+            file("$grammarKitFakePsiDeps/src/main/kotlin")
     }
 }
 
@@ -235,6 +235,9 @@ val Project.dependencyCachePath
         return cachePath.absolutePath
     }
 
+val pluginProjects: List<Project>
+    get() = rootProject.allprojects.filter { it.name != grammarKitFakePsiDeps }
+
 val channelSuffix = if (channel.isBlank() || channel == "stable") "" else "-$channel"
 val versionSuffix = "-$platformVersion$channelSuffix"
 val majorVersion = "0.4"
@@ -283,7 +286,7 @@ project(":plugin") {
     // We need to put all plugin manifest files into single jar to make new plugin model work
     val mergePluginJarTask = task<Jar>("mergePluginJars") {
         duplicatesStrategy = DuplicatesStrategy.FAIL
-        archiveBaseName.set("intellij-rust")
+        archiveBaseName.set(basePluginArchiveName)
 
         exclude("META-INF/MANIFEST.MF")
         exclude("**/classpath.index")
@@ -310,11 +313,32 @@ project(":plugin") {
         }
     }
 
+    // Add plugin sources to the plugin ZIP.
+    // gradle-intellij-plugin will use it as a plugin sources if the plugin is used as a dependency
+    val createSourceJar = task<Jar>("createSourceJar") {
+        dependsOn(":generateLexer")
+        dependsOn(":generateParser")
+        dependsOn(":debugger:generateGrammarSource")
+
+        for (prj in pluginProjects) {
+            from(prj.kotlin.sourceSets.main.get().kotlin) {
+                include("**/*.java")
+                include("**/*.kt")
+            }
+        }
+
+        destinationDirectory.set(layout.buildDirectory.dir("libs"))
+        archiveBaseName.set(basePluginArchiveName)
+        archiveClassifier.set("src")
+    }
+
     tasks {
         buildPlugin {
+            dependsOn(createSourceJar)
+            from(createSourceJar) { into("lib/src") }
             // Set proper name for final plugin zip.
             // Otherwise, base name is the same as gradle module name
-            archiveBaseName.set("intellij-rust")
+            archiveBaseName.set(basePluginArchiveName)
         }
         runIde { enabled = true }
         prepareSandbox {
@@ -339,7 +363,7 @@ project(":plugin") {
             // Copy pretty printers
             from("$rootDir/prettyPrinters") {
                 into("${pluginName.get()}/prettyPrinters")
-                include("*.py")
+                include("**/*.py")
             }
         }
 
@@ -381,7 +405,7 @@ project(":plugin") {
     }
 }
 
-project(":$grammarKitFakePsiDepsProject")
+project(":$grammarKitFakePsiDeps")
 
 project(":") {
     sourceSets {
@@ -421,7 +445,7 @@ project(":") {
             pathToParser.set("org/rust/lang/core/parser/RustParser.java")
             pathToPsiRoot.set("org/rust/lang/core/psi")
             purgeOldFiles.set(true)
-            classpath(project(grammarKitFakePsiDepsProject).sourceSets.main.get().runtimeClasspath)
+            classpath(project(":$grammarKitFakePsiDeps").sourceSets.main.get().runtimeClasspath)
         }
         withType<KotlinCompile> {
             dependsOn(generateLexer, generateParser)
@@ -536,7 +560,7 @@ project(":toml") {
         plugins.set(listOf(tomlPlugin))
     }
     dependencies {
-        implementation("org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r") { exclude("org.slf4j") }
+        implementation("org.eclipse.jgit:org.eclipse.jgit:6.5.0.202303070854-r") { exclude("org.slf4j") }
 
         implementation(project(":"))
         testImplementation(project(":", "testOutput"))
@@ -614,78 +638,6 @@ project(":ml-completion") {
         implementation("org.jetbrains.intellij.deps.completion:completion-ranking-rust:0.4.1")
         implementation(project(":"))
         testImplementation(project(":", "testOutput"))
-    }
-}
-
-task("runPrettyPrintersTests") {
-    doLast {
-        val hostPlatform = DefaultNativePlatform.host()
-        val archName = when {
-            hostPlatform.architecture.isAmd64 -> "x64"
-            hostPlatform.architecture.isArm -> "aarch64"
-            else -> error("Unsupported architecture")
-        }
-
-        val lldbPath = when {
-            // TODO: Use `lldb` Python module from CLion distribution
-            isFamily(FAMILY_MAC) -> "/Applications/Xcode.app/Contents/SharedFrameworks/LLDB.framework/Resources/Python"
-            isFamily(FAMILY_UNIX) -> {
-                // BACKCOMPAT: 2022.3
-                if (platformVersion >= 231) {
-                    "$projectDir/deps/${clionVersion.replaceFirst("CL", "clion")}/bin/lldb/linux/$archName/lib/python3.8/site-packages"
-                } else {
-                    "$projectDir/deps/${clionVersion.replaceFirst("CL", "clion")}/bin/lldb/linux/lib/python3.8/site-packages"
-                }
-            }
-            isFamily(FAMILY_WINDOWS) -> "" // `python36._pth` is used below instead
-            else -> error("Unsupported OS")
-        }
-        val runCommand = "cargo run --package pretty_printers_test --bin pretty_printers_test -- lldb $lldbPath"
-        if (isFamily(FAMILY_WINDOWS)) {
-            val lldbBundlePath = "$projectDir\\deps\\${clionVersion.replaceFirst("CL", "clion")}\\bin\\lldb\\win\\x64"
-            // Add path to bundled `lldb` Python module to `._pth` file (which overrides `sys.path`)
-            // TODO: Drop when this is implemented on CLion side
-            "cmd /C echo ../lib/site-packages>> bin/python36._pth".execute(lldbBundlePath)
-            // Create symlink to allow `lldb` Python module perform `import _lldb` inside
-            // TODO: Drop when this is implemented on CLion side
-            "cmd /C mklink $lldbBundlePath\\lib\\site-packages\\lldb\\_lldb.pyd $lldbBundlePath\\bin\\liblldb.dll".execute()
-
-            // Add path to bundled Python 3 to `Settings_windows.toml` (it is not added statically since it requires $projectDir)
-            "cmd /C echo python = \"${lldbBundlePath.replace("\\", "/")}/bin/python.exe\">> Settings_windows.toml".execute("pretty_printers_tests")
-            // Use UTF-8 to properly decode test output in `lldb_batchmode.py`
-            "cmd /C set PYTHONIOENCODING=utf8 & $runCommand".execute("pretty_printers_tests")
-        } else {
-            // TODO: Remove after CLion snapshot builds provide these files with required permissions
-            if (isFamily(FAMILY_MAC)) {
-                val lldbMacBinDir = File("$projectDir/deps/${clionVersion.replaceFirst("CL", "clion")}/bin/lldb/mac")
-                lldbMacBinDir.resolve("lldb").setExecutable(true)
-                lldbMacBinDir.resolve("LLDBFrontend").setExecutable(true)
-                lldbMacBinDir.resolve("LLDB.framework").resolve("LLDB").setExecutable(true)
-            }
-
-            runCommand.execute("pretty_printers_tests")
-        }
-
-        val gdbBinary = when {
-            isFamily(FAMILY_MAC) -> "$projectDir/deps/${clionVersion.replaceFirst("CL", "clion")}/bin/gdb/mac/bin/gdb"
-            isFamily(FAMILY_UNIX) -> {
-                // BACKCOMPAT: 2022.3
-                if (platformVersion >= 231) {
-                    "$projectDir/deps/${clionVersion.replaceFirst("CL", "clion")}/bin/gdb/linux/$archName/bin/gdb"
-                } else {
-                    "$projectDir/deps/${clionVersion.replaceFirst("CL", "clion")}/bin/gdb/linux/bin/gdb"
-                }
-            }
-            isFamily(FAMILY_WINDOWS) -> {
-                println("GDB pretty-printers tests are not supported yet for Windows")
-                return@doLast
-            }
-            else -> error("Unsupported OS")
-        }
-        // TODO: Remove after CLion snapshot builds provide this file with required permissions
-        File(gdbBinary).setExecutable(true)
-
-        "cargo run --package pretty_printers_test --bin pretty_printers_test -- gdb $gdbBinary".execute("pretty_printers_tests")
     }
 }
 

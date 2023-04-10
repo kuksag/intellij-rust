@@ -11,10 +11,8 @@ import org.rust.ide.experiments.RsExperiments.DERIVE_PROC_MACROS
 import org.rust.ide.experiments.RsExperiments.EVALUATE_BUILD_SCRIPTS
 import org.rust.ide.experiments.RsExperiments.FN_LIKE_PROC_MACROS
 import org.rust.ide.experiments.RsExperiments.PROC_MACROS
-import org.rust.lang.core.macros.MacroExpansionScope
 
 @MinRustcVersion("1.46.0")
-@ExpandMacros(MacroExpansionScope.WORKSPACE)
 @WithExperimentalFeatures(EVALUATE_BUILD_SCRIPTS, PROC_MACROS)
 @ProjectDescriptor(WithProcMacroRustProjectDescriptor::class)
 class RsProcMacroExpansionResolveTest : RsResolveTestBase() {
@@ -73,6 +71,21 @@ class RsProcMacroExpansionResolveTest : RsResolveTestBase() {
         use test_proc_macros::DeriveImplForFoo;
 
         #[derive(DeriveImplForFoo)] // impl Foo { fn foo(&self) -> Bar {} }
+        struct Foo;
+        struct Bar;
+        impl Bar {
+            fn bar(&self) {}
+        }     //X
+
+        fn main() {
+            Foo.foo().bar()
+        }           //^
+    """)
+
+    fun `test custom derive with unresolved custom derive`() = checkByCode("""
+        use test_proc_macros::DeriveImplForFoo;
+
+        #[derive(Unresolved, DeriveImplForFoo)] // impl Foo { fn foo(&self) -> Bar {} }
         struct Foo;
         struct Bar;
         impl Bar {
@@ -428,6 +441,77 @@ class RsProcMacroExpansionResolveTest : RsResolveTestBase() {
         fn main() {
             S::foo();
         }    //^
+    """)
+
+    fun `test hardcoded attr and macro attr 1`() = checkByCode("""
+        #[test_proc_macros::attr_hardcoded_as_is]
+        #[test_proc_macros::attr_as_is]
+        fn foo() {}
+         //X
+        fn main() {
+            foo();
+        } //^
+    """)
+
+    fun `test hardcoded attr and macro attr 2`() = checkByCode("""
+        #[test_proc_macros::attr_hardcoded_as_is]
+        #[test_proc_macros::attr_replace_with_attr(fn bar() {})]
+        fn foo() {}                                 //X
+        fn main() {
+            bar();
+        } //^
+    """)
+
+    fun `test hardcoded attr and macro attr 3`() = checkByCode("""
+        #[test_proc_macros::attr_hardcoded_as_is]
+        #[test_proc_macros::attr_replace_with_attr(fn bar() {})]
+        fn foo() {}
+        fn main() {
+            foo();
+        } //^ unresolved
+    """)
+
+    fun `test two hardcoded attrs`() = checkByCode("""
+        #[test_proc_macros::attr_hardcoded_as_is]
+        #[test_proc_macros::attr_hardcoded_as_is]
+        fn foo() {}
+         //X
+        fn main() {
+            foo();
+        } //^
+    """)
+
+    fun `test hardcoded attr and macro derive`() = checkByCode("""
+        #[test_proc_macros::attr_hardcoded_as_is]
+        #[derive(test_proc_macros::DeriveStructFooDeclaration)]
+        struct Bar {}
+        impl Foo {
+            fn method(&self) {}
+        }    //X
+        fn main() {
+            Foo.method();
+        }     //^
+    """)
+
+    fun `test macro derive and hardcoded attr`() = checkByCode("""
+        #[derive(test_proc_macros::DeriveStructFooDeclaration)]
+        #[test_proc_macros::attr_hardcoded_as_is]
+        struct Bar {}
+        impl Foo {
+            fn method(&self) {}
+        }    //X
+        fn main() {
+            Foo.method();
+        }     //^
+    """)
+
+    fun `test hardcoded attr and macro attr inside a function body`() = checkByCode("""
+        fn main() {
+            #[test_proc_macros::attr_hardcoded_as_is]
+            #[test_proc_macros::attr_replace_with_attr(fn bar() {})]
+            fn foo() {}                                 //X
+            bar();
+        } //^
     """)
 
     fun `test attr legacy macro 2`() = checkByCode("""

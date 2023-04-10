@@ -12,6 +12,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import org.rust.ide.intentions.InvertIfIntention.Context.ContextWithElse
 import org.rust.ide.intentions.InvertIfIntention.Context.ContextWithoutElse
+import org.rust.ide.intentions.util.macros.InvokeInside
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.ext.*
 import org.rust.lang.core.types.ty.TyNever
@@ -54,6 +55,11 @@ import org.rust.lang.utils.negate
  * ```
  */
 class InvertIfIntention : RsElementBaseIntentionAction<InvertIfIntention.Context>() {
+    override fun getFamilyName(): String = text
+    override fun getText() = "Invert if condition"
+
+    override val attributeMacroHandlingStrategy: InvokeInside get() = InvokeInside.MACRO_CALL
+
     sealed interface Context {
         val ifCondition: RsExpr
 
@@ -177,10 +183,6 @@ class InvertIfIntention : RsElementBaseIntentionAction<InvertIfIntention.Context
 
     private fun getSuitableCondition(ifExpr: RsIfExpr): RsCondition? =
         ifExpr.condition?.takeIf { it.expr?.descendantOfTypeOrSelf<RsLetExpr>() == null }
-
-    override fun getFamilyName(): String = text
-
-    override fun getText() = "Invert if condition"
 }
 
 /**
@@ -246,28 +248,16 @@ private fun IfStmts.convertReturnToTailExpr(block: RsBlock, factory: RsPsiFactor
  * `loop { ...; }` => `loop { ...; continue; }`
  */
 private fun IfStmts.addImplicitReturnOrContinue(block: RsBlock, factory: RsPsiFactory): IfStmts {
-    val tailStmt = nextStmts.findLast { it is RsExprStmt && it.isTailStmt } as? RsExprStmt
-    val expr = tailStmt?.expr
-    check(expr == null || expr.type is TyUnit)
-    return when {
-        expr != null && expr.canBeStmtWithoutSemicolon() -> {
-            copy(nextStmts = nextStmts.replace(expr, expr.wrapInStmt(factory)))
-                .addImplicitReturnOrContinue(block, factory)
-        }
-        expr == null -> {
-            val lastStmt = nextStmts.filterIsInstance<RsExprStmt>().lastOrNull()?.expr
-            if (lastStmt is RsMacroCall) return this
-            if (lastStmt?.isDiverges() == true) return this
-            val addedStmt = when (block.parent) {
-                is RsFunctionOrLambda -> factory.createStatement("return;")
-                is RsLooplikeExpr -> factory.createStatement("continue;")
-                else -> return this
-            }
-            val newline = listOfNotNull(factory.createNewline().takeIf { lastStmt != null })
-            copy(nextStmts = nextStmts + addedStmt + newline)
-        }
+    val lastStmt = nextStmts.filterIsInstance<RsExprStmt>().lastOrNull()?.expr
+    if (lastStmt is RsMacroCall) return this
+    if (lastStmt?.isDiverges() == true) return this
+    val addedStmt = when (block.parent) {
+        is RsFunctionOrLambda -> factory.createStatement("return;")
+        is RsLooplikeExpr -> factory.createStatement("continue;")
         else -> return this
     }
+    val newline = listOfNotNull(factory.createNewline().takeIf { lastStmt != null })
+    return copy(nextStmts = nextStmts + addedStmt + newline)
 }
 
 private fun IfStmts.removeImplicitReturnOrContinue(block: RsBlock): IfStmts {
@@ -342,10 +332,6 @@ private fun PsiElement.isDiverges() =
 
 private fun List<PsiElement>.hasStmts(): Boolean =
     any { it !is PsiWhiteSpace && it !is PsiComment }
-
-private fun RsExpr.canBeStmtWithoutSemicolon(): Boolean =
-    this is RsWhileExpr || this is RsForExpr || this is RsLoopExpr
-        || this is RsIfExpr || this is RsMatchExpr || this is RsBlockExpr
 
 private fun RsExpr.wrapInStmt(factory: RsPsiFactory): RsExprStmt =
     factory.tryCreateExprStmtWithSemicolon(text)!!

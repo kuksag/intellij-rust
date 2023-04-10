@@ -678,6 +678,11 @@
                          enabledByDefault="true" level="ERROR"
                          implementationClass="org.rust.ide.inspections.RsWrongAssocTypeArgumentsInspection"/>
 
+        <localInspection language="Rust" groupPath="Rust" groupName="Lints"
+                         displayName="Unused labels"
+                         enabledByDefault="true" level="WARNING"
+                         implementationClass="org.rust.ide.inspections.lints.RsUnusedLabelsInspection"/>
+
         <!-- Surrounders -->
 
         <lang.surroundDescriptor language="Rust"
@@ -1213,6 +1218,8 @@
         <inlineActionHandler implementation="org.rust.ide.refactoring.inlineValue.RsInlineValueHandler"/>
         <inlineActionHandler implementation="org.rust.ide.refactoring.inlineTypeAlias.RsInlineTypeAliasHandler"/>
 
+        <structuralsearch.profile implementation="org.rust.ide.ssr.RsStructuralSearchProfile"/>
+
         <!-- Postfix templates -->
         <codeInsight.template.postfixTemplateProvider language="Rust"
                                                       implementationClass="org.rust.ide.template.postfix.RsPostfixTemplateProvider"/>
@@ -1274,6 +1281,8 @@
         <statistics.projectUsagesCollector implementation="org.rust.ide.statistics.RsToolchainUsagesCollector"/>
         <!--suppress PluginXmlValidity -->
         <statistics.projectUsagesCollector implementation="org.rust.ide.statistics.RsProjectUsagesCollector"/>
+        <statistics.collectorExtension implementation="org.rust.ide.statistics.CargoCommandUsagesCollector"/>
+        <statistics.collectorExtension implementation="org.rust.ide.statistics.CargoCommandTypeCollector"/>
         <statistics.counterUsagesCollector implementationClass="org.rust.ide.statistics.RsCounterUsagesCollector"/>
         <statistics.counterUsagesCollector implementationClass="org.rust.ide.statistics.RsConvertJsonToStructUsagesCollector"/>
         <statistics.counterUsagesCollector implementationClass="org.rust.ide.statistics.RsCodeVisionUsageCollector"/>

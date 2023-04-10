@@ -16,9 +16,10 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.parentOfTypes
 import com.intellij.util.text.SemVer
 import org.rust.cargo.util.parseSemVer
-import org.rust.ide.annotator.fixes.AddTypeFix
-import org.rust.ide.annotator.fixes.RemoveElementFix
-import org.rust.ide.inspections.fixes.SubstituteTextFix
+import org.rust.ide.fixes.AddTypeFix
+import org.rust.ide.fixes.RemoveElementFix
+import org.rust.ide.fixes.RemovePolyBoundFix
+import org.rust.ide.fixes.SubstituteTextFix
 import org.rust.lang.core.CompilerFeature.Companion.C_VARIADIC
 import org.rust.lang.core.macros.MacroExpansion
 import org.rust.lang.core.psi.*
@@ -60,6 +61,7 @@ class RsSyntaxErrorsAnnotator : AnnotatorBase() {
             is RsLetExpr -> checkLetExpr(holder, element)
             is RsPatRange -> checkPatRange(holder, element)
             is RsTraitType -> checkTraitType(holder, element)
+            is RsUnderscoreExpr -> checkUnderscoreExpr(holder, element)
         }
     }
 }
@@ -477,9 +479,30 @@ private fun checkPatRange(holder: AnnotationHolder, element: RsPatRange) {
 
 private fun checkTraitType(holder: AnnotationHolder, element: RsTraitType) {
     if (element.impl != null) return
-    if (element.polyboundList.any { it.bound.lifetime == null }) return
+    val bounds = element.polyboundList
 
-    RsDiagnostic.AtLeastOneTraitForObjectTypeError(element).addToHolder(holder)
+    val lifetimeBounds = bounds.filter { it.bound.lifetime != null }
+    if (lifetimeBounds.size > 1) {
+        val fixes = lifetimeBounds.map { RemovePolyBoundFix(it) }.toList()
+        RsDiagnostic.TooManyLifetimeBoundsOnTraitObjectError(element, fixes).addToHolder(holder)
+    }
+
+    if (bounds.none { it.bound.lifetime == null }) {
+        RsDiagnostic.AtLeastOneTraitForObjectTypeError(element).addToHolder(holder)
+    }
+}
+
+private fun checkUnderscoreExpr(holder: AnnotationHolder, element: RsUnderscoreExpr) {
+    val isAllowed = run {
+        val binaryExpr = element.ancestorStrict<RsBinaryExpr>() ?: return@run false
+        if (binaryExpr.operatorType !is AssignmentOp) return@run false
+        if (!binaryExpr.left.isAncestorOf(element)) return@run false
+        true
+    }
+
+    if (!isAllowed) {
+        deny(element, holder, "In expressions, `_` can only be used on the left-hand side of an assignment")
+    }
 }
 
 private enum class TypeKind {

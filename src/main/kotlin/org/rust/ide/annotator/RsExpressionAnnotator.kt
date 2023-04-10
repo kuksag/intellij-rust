@@ -12,9 +12,9 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.SmartList
-import org.rust.ide.annotator.fixes.AddStructFieldsFix
-import org.rust.ide.annotator.fixes.CreateStructFieldFromConstructorFix
-import org.rust.ide.annotator.fixes.RemoveRedundantParenthesesFix
+import org.rust.ide.fixes.AddStructFieldsFix
+import org.rust.ide.fixes.CreateStructFieldFromConstructorFix
+import org.rust.ide.fixes.RemoveRedundantParenthesesFix
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.ext.*
 import org.rust.lang.core.resolve.ref.deepResolve
@@ -55,24 +55,21 @@ class RsExpressionAnnotator : AnnotatorBase() {
 
         if (body.dotdot != null) return  // functional update, no need to declare all the fields.
 
-        if (decl is RsStructItem && decl.kind == RsStructKind.UNION) {
-            if (body.structLiteralFieldList.size > 1) {
-                holder.createErrorAnnotation(body, "Union expressions should have exactly one field")
-            }
-        } else {
-            if (calculateMissingFields(body, decl).isNotEmpty()) {
-                if (!literal.existsAfterExpansion) return
+        if (decl is RsStructItem && decl.kind == RsStructKind.UNION) return
 
-                val structNameRange = literal.descendantOfTypeStrict<RsPath>()?.textRange
-                if (structNameRange != null) {
-                    holder.holder.newAnnotation(HighlightSeverity.ERROR, "Some fields are missing")
-                        .range(structNameRange)
-                        .newFix(AddStructFieldsFix(literal)).range(body.parent.textRange).registerFix()
-                        .newFix(AddStructFieldsFix(literal, recursive = true)).range(body.parent.textRange).registerFix()
-                        .create()
-                }
+        if (calculateMissingFields(body, decl).isNotEmpty()) {
+            if (!literal.existsAfterExpansion) return
+
+            val structNameRange = literal.descendantOfTypeStrict<RsPath>()?.textRange
+            if (structNameRange != null) {
+                holder.holder.newAnnotation(HighlightSeverity.ERROR, "Some fields are missing")
+                    .range(structNameRange)
+                    .newFix(AddStructFieldsFix(literal)).range(body.parent.textRange).registerFix()
+                    .newFix(AddStructFieldsFix(literal, recursive = true)).range(body.parent.textRange).registerFix()
+                    .create()
             }
         }
+
 
     }
 }

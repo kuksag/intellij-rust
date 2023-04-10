@@ -16,6 +16,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx
 import com.intellij.openapi.util.*
@@ -106,8 +107,12 @@ interface MacroExpansionManager {
         cacheDirectory: String = "",
         clearCacheBeforeDispose: Boolean = false
     ): Disposable
+
     @TestOnly
     fun updateInUnitTestMode()
+
+    @TestOnly
+    fun setMacroExpansionEnabled(enabled: Boolean)
 
     companion object {
         @JvmStatic
@@ -288,6 +293,7 @@ class MacroExpansionManagerImpl(
         this.dirs = dir
         this.inner = impl
         impl.macroExpansionMode = mode
+        impl.enabledInUnitTests = true
 
         runWriteAction {
             ProjectRootManagerEx.getInstanceEx(project)
@@ -306,6 +312,10 @@ class MacroExpansionManagerImpl(
 
     override fun updateInUnitTestMode() {
         inner?.updateInUnitTestMode()
+    }
+
+    override fun setMacroExpansionEnabled(enabled: Boolean) {
+        inner?.setMacroExpansionEnabled(enabled)
     }
 
     override fun dispose() {
@@ -434,6 +444,8 @@ private class MacroExpansionServiceImplInner(
 
     @TestOnly
     var macroExpansionMode: MacroExpansionScope = MacroExpansionScope.NONE
+    @TestOnly
+    var enabledInUnitTests: Boolean = true
 
     fun isExpansionFileOfCurrentProject(file: VirtualFile): Boolean {
         return VfsUtil.isAncestor(expansionsDirVi, file, true)
@@ -450,7 +462,7 @@ private class MacroExpansionServiceImplInner(
         if (lastSavedStorageModCount == modificationTracker.modificationCount) return
 
         @Suppress("BlockingMethodInNonBlockingContext")
-        withContext(Dispatchers.IO) { // ensure dispatcher knows we are doing blocking IO
+        withIoContextIfNotUnitTestMode { // ensure dispatcher knows we are doing blocking IO
             // Using a buffer to avoid IO in the read action
             // BACKCOMPAT: 2020.1 use async read action and extract `runReadAction` from `withContext`
             val (buffer, modCount) = runReadAction {
@@ -469,6 +481,14 @@ private class MacroExpansionServiceImplInner(
             dataFile.newDeflaterDataOutputStream().use { it.write(buffer.internalBuffer) }
             MacroExpansionFileSystemRootsLoader.saveProjectDirs()
             lastSavedStorageModCount = modCount
+        }
+    }
+
+    private suspend fun <T> withIoContextIfNotUnitTestMode(block: suspend () -> T): T {
+        return if (isUnitTestMode) {
+            block()
+        } else {
+            withContext(Dispatchers.IO) { block() }
         }
     }
 
@@ -696,7 +716,9 @@ private class MacroExpansionServiceImplInner(
     }
 
     private fun processMacros(taskType: RsTask.TaskType) {
-        if (!isExpansionModeNew) return
+        if (!isExpansionModeNew || !enabledInUnitTests) return
+        if (isUnitTestMode && DumbService.isDumb(project)) return
+
         val task = MacroExpansionTask(
             project,
             modificationTracker,
@@ -834,7 +856,7 @@ private class MacroExpansionServiceImplInner(
             owner as? RsMacroCall
         } else {
             if (owner !is RsAttrProcMacroOwner) return null
-            owner.findAttrOrDeriveMacroCall(macroIndex.last, crate)
+            owner.findAttrOrDeriveMacroCall(macroIndex.last, kind == DERIVE, crate)
         }
     }
 
@@ -868,18 +890,25 @@ private class MacroExpansionServiceImplInner(
 
     private fun RsAttrProcMacroOwner.findAttrOrDeriveMacroCall(
         macroIndexInParent: Int,
+        isDerive: Boolean,
         crate: Crate,
     ): RsPossibleMacroCall? {
-        val attr = ProcMacroAttribute.getProcMacroAttributeWithoutResolve(
+        val attrs = ProcMacroAttribute.getProcMacroAttributeWithoutResolve(
             this,
             explicitCrate = crate,
             withDerives = true
         )
-        return when (attr) {
-            is ProcMacroAttribute.Attr -> attr.attr
-            is ProcMacroAttribute.Derive -> attr.derives.elementAtOrNull(macroIndexInParent)
-            ProcMacroAttribute.None -> null
+        for (attr in attrs) {
+            when (attr) {
+                is ProcMacroAttribute.Attr -> if (!isDerive) {
+                    return attr.attr
+                }
+                is ProcMacroAttribute.Derive -> if (isDerive) {
+                    return attr.derives.elementAtOrNull(macroIndexInParent)
+                }
+            }
         }
+        return null
     }
 
     private fun getExpansionFile(defMap: CrateDefMap, callIndex: MacroIndex): RsFile? {
@@ -902,7 +931,7 @@ private class MacroExpansionServiceImplInner(
             return GetMacroExpansionError.CfgDisabled
         }
 
-        val resolveResult = call.resolveToMacroWithoutPsiWithErr()
+        val resolveResult = call.resolveToMacroWithoutPsiWithErr(errorIfIdentity = true)
 
         val isProcMacro = resolveResult is Ok && resolveResult.ok.data is RsProcMacroData
             || resolveResult is Err && resolveResult.err is ResolveMacroWithoutPsiError.NoProcMacroArtifact
@@ -962,16 +991,23 @@ private class MacroExpansionServiceImplInner(
         processChangedMacros()
     }
 
+    @TestOnly
+    fun setMacroExpansionEnabled(enabled: Boolean) {
+        enabledInUnitTests = enabled
+    }
+
     private fun disposeUnitTest(saveCacheOnDispose: Boolean, clearCacheBeforeDispose: Boolean) {
         check(isUnitTestMode)
 
-        project.taskQueue.cancelTasks(RsTask.TaskType.MACROS_CLEAR)
+        if (!project.isDisposed) {
+            project.taskQueue.cancelTasks(RsTask.TaskType.MACROS_CLEAR)
 
-        val taskQueue = project.taskQueue
-        if (!taskQueue.isEmpty) {
-            while (!taskQueue.isEmpty && !project.isDisposed) {
-                PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-                Thread.sleep(10)
+            val taskQueue = project.taskQueue
+            if (!taskQueue.isEmpty) {
+                while (!taskQueue.isEmpty && !project.isDisposed) {
+                    PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+                    Thread.sleep(10)
+                }
             }
         }
 

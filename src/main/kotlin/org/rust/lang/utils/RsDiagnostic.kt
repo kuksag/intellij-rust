@@ -24,12 +24,11 @@ import org.rust.cargo.toolchain.RustChannel
 import org.rust.cargo.toolchain.impl.RustcVersion
 import org.rust.ide.annotator.RsAnnotationHolder
 import org.rust.ide.annotator.RsErrorAnnotator
-import org.rust.ide.annotator.fixes.*
+import org.rust.ide.fixes.*
 import org.rust.ide.inspections.RsExperimentalChecksInspection
 import org.rust.ide.inspections.RsProblemsHolder
 import org.rust.ide.inspections.RsTypeCheckInspection
 import org.rust.ide.inspections.RsWrongAssocTypeArgumentsInspection
-import org.rust.ide.inspections.fixes.*
 import org.rust.ide.presentation.render
 import org.rust.ide.presentation.renderInsertionSafe
 import org.rust.ide.presentation.shortPresentableText
@@ -114,7 +113,7 @@ sealed class RsDiagnostic(
                             add(ConvertLetDeclTypeFix(parent, text, actualTy))
                         }
                     }
-                }
+                }.toQuickFixInfo()
             )
         }
 
@@ -309,7 +308,7 @@ sealed class RsDiagnostic(
             ERROR,
             errorCode,
             "$itemType `${element.text}` is private",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -323,7 +322,7 @@ sealed class RsDiagnostic(
             ERROR,
             if (element.parent is RsStructLiteralField) E0451 else E0616,
             "Field `$fieldName` of struct `$structName` is private",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -335,7 +334,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0133,
             message,
-            fixes = listOfNotNull(SurroundWithUnsafeFix(element as RsExpr), AddUnsafeFix.create(element))
+            fixes = listOfFixes(SurroundWithUnsafeFix(element as RsExpr), AddUnsafeFix.create(element))
         )
     }
 
@@ -370,7 +369,7 @@ sealed class RsDiagnostic(
                 ERROR,
                 E0424,
                 "The self keyword was used in a static method",
-                fixes = fixes
+                fixes = fixes.toQuickFixInfo()
             )
         }
     }
@@ -382,7 +381,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0449,
             "Unnecessary visibility qualifier",
-            fixes = listOf(RemoveElementFix(element, "visibility qualifier"))
+            fixes = listOfFixes(RemoveElementFix(element, "visibility qualifier"))
         )
     }
 
@@ -419,7 +418,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0200,
             errorText(),
-            fixes = listOfNotNull(AddUnsafeFix.create(element))
+            fixes = listOfFixes(AddUnsafeFix.create(element))
         )
 
         private fun errorText(): String {
@@ -435,7 +434,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0518,
             "Attribute should be applied to function or closure",
-            fixes = listOf(RemoveAttrFix(attr))
+            fixes = listOfFixes(RemoveAttrFix(attr))
         )
     }
 
@@ -463,7 +462,7 @@ sealed class RsDiagnostic(
             ERROR,
             errorCode(),
             errorText(),
-            fixes = listOfNotNull(AddDefinitionToTraitFix.createIfCompatible(member))
+            fixes = listOfFixes(AddDefinitionToTraitFix.createIfCompatible(member))
         )
 
         private fun errorCode(): RsErrorCode =
@@ -480,6 +479,34 @@ sealed class RsDiagnostic(
                 else -> "Method"
             }
             return "$itemType `${member.name}` is not a member of trait `$traitName`"
+        }
+    }
+
+    class MismatchMemberInTraitImplError(
+        element: PsiElement,
+        private val member: RsAbstractable,
+        private val traitName: String,
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            errorCode(),
+            errorText(),
+        )
+
+        private fun errorCode(): RsErrorCode =
+            when (member) {
+                is RsTypeAlias -> E0325
+                is RsConstant -> E0323
+                else -> E0324
+            }
+
+        private fun errorText(): String {
+            val itemType = when (member) {
+                is RsTypeAlias -> "type"
+                is RsConstant -> "const"
+                else -> "method"
+            }
+            return "item `${member.name}` is an associated $itemType, which doesn't match its trait `$traitName`"
         }
     }
 
@@ -532,7 +559,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0040,
             errorText(),
-            fixes = listOf(ReplaceWithStdMemDropFix(element.parent)) // e.parent: fn's name -> RsMethodCall or RsCallExpr
+            fixes = listOfFixes(ReplaceWithStdMemDropFix(element.parent)) // e.parent: fn's name -> RsMethodCall or RsCallExpr
         )
 
         private fun errorText(): String {
@@ -563,7 +590,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0054,
             "It is not allowed to cast to a bool.",
-            fixes = listOfNotNull(CompareWithZeroFix.createIfCompatible(castExpr))
+            fixes = listOfFixes(CompareWithZeroFix.createIfCompatible(castExpr))
         )
     }
 
@@ -587,18 +614,17 @@ sealed class RsDiagnostic(
 
     class IncorrectFunctionArgumentCountError(
         element: PsiElement,
+        endElement: PsiElement?,
         private val expectedCount: Int,
         private val realCount: Int,
         private val functionType: FunctionType = FunctionType.FUNCTION,
-        private val fixes: List<LocalQuickFix> = emptyList(),
-        private val textAttributes: TextAttributesKey? = null
-    ) : RsDiagnostic(element) {
+        private val fixes: List<QuickFixWithRange> = emptyList(),
+    ) : RsDiagnostic(element, endElement) {
         override fun prepare() = PreparedAnnotation(
             ERROR,
             functionType.errorCode,
             errorText(),
             fixes = fixes,
-            textAttributes = textAttributes
         )
 
         private fun errorText(): String {
@@ -644,7 +670,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0084,
             "Enum with no variants can't have `repr` attribute",
-            fixes = listOf(RemoveAttrFix(attr))
+            fixes = listOfFixes(RemoveAttrFix(attr))
         )
     }
 
@@ -921,7 +947,7 @@ sealed class RsDiagnostic(
                 ERROR,
                 E0261,
                 errorText(),
-                fixes = listOfNotNull(CreateLifetimeParameterFromUsageFix.tryCreate(lifetime))
+                fixes = listOfFixes(CreateLifetimeParameterFromUsageFix.tryCreate(lifetime))
             )
         }
 
@@ -940,7 +966,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0046,
             errorText(),
-            fixes = listOf(ImplementMembersFix(impl))
+            fixes = listOfFixes(ImplementMembersFix(impl))
         )
 
         private fun errorText(): String {
@@ -972,14 +998,15 @@ sealed class RsDiagnostic(
             E0277,
             header = "the trait bound `$ty: std::marker::Sized` is not satisfied",
             description = "`$ty` does not have a constant size known at compile-time",
-            fixes = listOf(ConvertToReferenceFix(element), ConvertToBoxFix(element))
+            fixes = listOfFixes(ConvertToReferenceFix(element), ConvertToBoxFix(element))
         )
     }
 
     class SuperTraitIsNotImplemented(
         element: RsTraitRef,
         type: Ty,
-        private val missingTrait: String
+        private val missingTrait: String,
+        private val fix: QuickFixWithRange?,
     ) : RsDiagnostic(element) {
         private val typeText = type.shortPresentableText
 
@@ -987,7 +1014,8 @@ sealed class RsDiagnostic(
             ERROR,
             E0277,
             header = "the trait bound `$typeText: $missingTrait` is not satisfied",
-            description = "the trait `$missingTrait` is not implemented for `$typeText`"
+            description = "the trait `$missingTrait` is not implemented for `$typeText`",
+            fixes = listOfNotNull(fix)
         )
     }
 
@@ -1001,7 +1029,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0658,
             header = message,
-            fixes = fixes
+            fixes = fixes.toQuickFixInfo()
         )
     }
 
@@ -1059,7 +1087,7 @@ sealed class RsDiagnostic(
                 ERROR,
                 E0107,
                 errorText,
-                fixes = fixes
+                fixes = fixes.toQuickFixInfo()
             )
         }
     }
@@ -1073,7 +1101,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0747,
             errorText,
-            fixes = fixes
+            fixes = fixes.toQuickFixInfo()
         )
     }
 
@@ -1116,7 +1144,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0594,
             "Cannot assign to $message",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -1128,7 +1156,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0384,
             "Cannot assign twice to immutable variable",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -1140,7 +1168,7 @@ sealed class RsDiagnostic(
             E0704,
             "Incorrect visibility restriction",
             "Visibility restriction with module path should start with `in` keyword",
-            fixes = listOf(FixVisRestriction(visRestriction))
+            fixes = listOfFixes(FixVisRestriction(visRestriction))
         )
     }
 
@@ -1159,7 +1187,7 @@ sealed class RsDiagnostic(
             UNKNOWN_SYMBOL,
             E0583,
             "File not found for module `${modDecl.name}`",
-            fixes = AddModuleFileFix.createFixes(modDecl, expandModuleFirst = false)
+            fixes = AddModuleFileFix.createFixes(modDecl, expandModuleFirst = false).toQuickFixInfo()
         )
     }
 
@@ -1171,7 +1199,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0004,
             "Match must be exhaustive",
-            fixes = listOfNotNull(
+            fixes = listOfFixes(
                 AddRemainingArmsFix(matchExpr, patterns).takeIf { patterns.isNotEmpty() },
                 AddWildcardArmFix(matchExpr).takeIf { matchExpr.arms.isNotEmpty() }
             )
@@ -1254,7 +1282,7 @@ sealed class RsDiagnostic(
                 ERROR,
                 E0023,
                 "$itemType pattern does not correspond to its declaration: expected $expectedAmount ${pluralize("field", expectedAmount)}, found $actualAmount",
-                fixes = listOf(AddStructFieldsPatFix(element), AddPatRestFix(element))
+                fixes = listOfFixes(AddStructFieldsPatFix(element), AddPatRestFix(element))
             )
         }
     }
@@ -1271,7 +1299,7 @@ sealed class RsDiagnostic(
                 ERROR,
                 E0027,
                 "$itemType pattern does not mention ${pluralize("field", missingFields.size)} $missingFieldNames",
-                fixes = listOf(AddStructFieldsPatFix(element), AddPatRestFix(element))
+                fixes = listOfFixes(AddStructFieldsPatFix(element), AddPatRestFix(element))
             )
         }
     }
@@ -1339,7 +1367,7 @@ sealed class RsDiagnostic(
                 ERROR,
                 E0601,
                 "`main` function not found in crate `$crateName`",
-                fixes = listOf(AddMainFnFix(element))
+                fixes = listOfFixes(AddMainFnFix(element))
             )
         }
     }
@@ -1365,7 +1393,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0774,
             "`derive` may only be applied to structs, enums and unions",
-            fixes = listOf(RemoveAttrFix(element as RsAttr))
+            fixes = listOfFixes(RemoveAttrFix(element as RsAttr))
         )
     }
 
@@ -1374,7 +1402,7 @@ sealed class RsDiagnostic(
             ERROR,
             null,
             "Malformed `$attrName` attribute input: missing parentheses",
-            fixes = listOf(AddAttrParenthesesFix(element as RsMetaItem, attrName))
+            fixes = listOfFixes(AddAttrParenthesesFix(element as RsMetaItem, attrName))
         )
     }
 
@@ -1386,7 +1414,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0517,
             errorText,
-            fixes = listOf(RemoveReprValueFix(element))
+            fixes = listOfFixes(RemoveReprValueFix(element))
         )
     }
 
@@ -1398,7 +1426,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0552,
             "Unrecognized representation $reprName",
-            fixes = listOf(RemoveReprValueFix(element))
+            fixes = listOfFixes(RemoveReprValueFix(element))
         )
     }
 
@@ -1411,7 +1439,7 @@ sealed class RsDiagnostic(
             ERROR,
             if (exportedItem is RsMod) E0365 else E0364,
             "`$name` is private, and cannot be re-exported",
-            fixes = listOfNotNull(MakePublicFix.createIfCompatible(exportedItem, exportedItem.name, false))
+            fixes = listOfFixes(MakePublicFix.createIfCompatible(exportedItem, exportedItem.name, false))
         )
     }
 
@@ -1448,7 +1476,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0537,
             "Invalid predicate `$name`",
-            fixes = fixes
+            fixes = fixes.toQuickFixInfo()
         )
     }
 
@@ -1461,7 +1489,7 @@ sealed class RsDiagnostic(
             E0703,
             "Invalid ABI: found $abiName",
             description = "valid ABIs: ${SUPPORTED_CALLING_CONVENTIONS.keys.joinToString(", ")}",
-            fixes = createSuggestionFixes()
+            fixes = createSuggestionFixes().toQuickFixInfo()
         )
 
         private fun createSuggestionFixes(): List<NameSuggestionFix<PsiElement>> {
@@ -1481,7 +1509,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0554,
             "`#![feature]` may not be used on the $channelName release channel",
-            fixes = listOfNotNull(quickFix)
+            fixes = listOfFixes(quickFix)
         )
     }
 
@@ -1490,7 +1518,7 @@ sealed class RsDiagnostic(
             ERROR,
             null,
             "Expressions must be enclosed in braces to be used as const generic arguments",
-            fixes = listOf(EncloseExprInBracesFix(element as RsExpr))
+            fixes = listOfFixes(EncloseExprInBracesFix(element as RsExpr))
         )
     }
 
@@ -1539,7 +1567,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0728,
             "`await` is only allowed inside `async` functions and blocks",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -1551,7 +1579,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0434,
             "Can't capture dynamic environment in a fn item",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -1560,7 +1588,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0733,
             "Recursion in an `async fn` requires boxing",
-            fixes = listOfNotNull(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -1573,7 +1601,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0220,
             "Associated type `$name` not found for `$trait`",
-            fixes = listOf(RemoveAssocTypeBindingFix(element))
+            fixes = listOfFixes(RemoveAssocTypeBindingFix(element))
         )
     }
 
@@ -1591,7 +1619,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0191,
             getText(),
-            fixes = listOf(AddAssocTypeBindingsFix(element, missingTypes.map { it.name }))
+            fixes = listOfFixes(AddAssocTypeBindingsFix(element, missingTypes.map { it.name }))
         )
     }
 
@@ -1634,7 +1662,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0197,
             "Inherent impls cannot be unsafe",
-            fixes = fixes
+            fixes = fixes.toQuickFixInfo()
         )
     }
 
@@ -1646,7 +1674,7 @@ sealed class RsDiagnostic(
             ERROR,
             E0131,
             "`main` function is not allowed to have generic parameters",
-            fixes = fixes
+            fixes = fixes.toQuickFixInfo()
         )
     }
 
@@ -1747,17 +1775,61 @@ sealed class RsDiagnostic(
             fixes = listOf(fix),
         )
     }
+
+    class ImplCopyForWrongTypeError(
+        element: PsiElement
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            E0206,
+            "The trait `Copy` may not be implemented for this type"
+        )
+    }
+
+    class CannotImplForDynAutoTraitError(
+        element: PsiElement
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            E0785,
+            "Cannot define inherent `impl` for a dyn auto trait"
+        )
+    }
+
+    class UnionExprWithWrongFieldCount(
+        element: PsiElement,
+        private val fixes: List<LocalQuickFix>
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            E0784,
+            "Union expressions should have exactly one field",
+            fixes = fixes.toQuickFixInfo(),
+        )
+    }
+
+    class TooManyLifetimeBoundsOnTraitObjectError(
+        element: PsiElement,
+        private val fixes: List<LocalQuickFix>
+    ) : RsDiagnostic(element) {
+        override fun prepare() = PreparedAnnotation(
+            ERROR,
+            E0226,
+            "Only a single explicit lifetime bound is permitted",
+            fixes = fixes.toQuickFixInfo(),
+        )
+    }
 }
 
 enum class RsErrorCode {
     E0004, E0013, E0015, E0023, E0025, E0026, E0027, E0040, E0044, E0046, E0049, E0050, E0054, E0057, E0060, E0061, E0069, E0081, E0084,
     E0106, E0107, E0116, E0117, E0118, E0120, E0121, E0124, E0130, E0131, E0132, E0133, E0184, E0185, E0186, E0191, E0197, E0198, E0199,
-    E0200, E0201, E0203, E0220, E0224, E0252, E0254, E0255, E0259, E0260, E0261, E0262, E0263, E0267, E0268, E0277,
-    E0308, E0322, E0328, E0364, E0365, E0379, E0384,
+    E0200, E0201, E0203, E0206, E0220, E0224, E0226, E0252, E0254, E0255, E0259, E0260, E0261, E0262, E0263, E0267, E0268, E0277,
+    E0308, E0322, E0323, E0324, E0325, E0328, E0364, E0365, E0379, E0384,
     E0403, E0404, E0407, E0415, E0416, E0424, E0426, E0428, E0429, E0430, E0431, E0433, E0434, E0435, E0437, E0438, E0449, E0451, E0463,
     E0517, E0518, E0537, E0552, E0554, E0562, E0569, E0571, E0583, E0586, E0594,
     E0601, E0603, E0614, E0616, E0618, E0624, E0642, E0658, E0666, E0667, E0695,
-    E0703, E0704, E0728, E0732, E0733, E0741, E0742, E0747, E0774;
+    E0703, E0704, E0728, E0732, E0733, E0741, E0742, E0747, E0774, E0784, E0785;
 
     val code: String
         get() = toString()
@@ -1774,9 +1846,19 @@ class PreparedAnnotation(
     val errorCode: RsErrorCode?,
     @Suppress("UnstableApiUsage") @InspectionMessage val header: String,
     @Suppress("UnstableApiUsage") @Tooltip val description: String = "",
-    val fixes: List<LocalQuickFix> = emptyList(),
+    val fixes: List<QuickFixWithRange> = emptyList(),
     val textAttributes: TextAttributesKey? = null
 )
+
+data class QuickFixWithRange(
+    val fix: LocalQuickFix,
+    val availabilityRange: TextRange?,
+)
+
+private fun listOfFixes(vararg fixes: LocalQuickFix?): List<QuickFixWithRange> =
+    fixes.mapNotNull { if (it == null) null else QuickFixWithRange(it, null) }
+
+private fun List<LocalQuickFix>.toQuickFixInfo(): List<QuickFixWithRange> = map { QuickFixWithRange(it, null) }
 
 fun RsDiagnostic.addToHolder(holder: RsAnnotationHolder, checkExistsAfterExpansion: Boolean = true) {
     if (!checkExistsAfterExpansion || element.existsAfterExpansion) {
@@ -1807,9 +1889,13 @@ fun RsDiagnostic.addToHolder(holder: AnnotationHolder) {
         annotationBuilder.textAttributes(prepared.textAttributes)
     }
 
-    for (fix in prepared.fixes) {
+    for ((fix, range) in prepared.fixes) {
         if (fix is IntentionAction) {
-            annotationBuilder.withFix(fix)
+            val fixBuilder = annotationBuilder.newFix(fix)
+            if (range != null) {
+                fixBuilder.range(range)
+            }
+            fixBuilder.registerFix()
         } else {
             val descriptor = InspectionManager.getInstance(element.project)
                 .createProblemDescriptor(
@@ -1835,7 +1921,7 @@ fun RsDiagnostic.addToHolder(holder: RsProblemsHolder) {
         endElement ?: element,
         prepared.fullDescription,
         prepared.severity.toProblemHighlightType(),
-        *prepared.fixes.toTypedArray()
+        *prepared.fixes.map { it.fix }.toTypedArray()
     )
 }
 

@@ -6,7 +6,7 @@
 package org.rust.ide.inspections.lints
 
 import com.intellij.psi.PsiElement
-import org.rust.ide.annotator.fixes.NameSuggestionFix
+import org.rust.ide.fixes.NameSuggestionFix
 import org.rust.ide.inspections.RsProblemsHolder
 import org.rust.ide.inspections.RsWithMacrosInspectionVisitor
 import org.rust.lang.core.RsPsiPattern
@@ -33,6 +33,8 @@ class RsUnknownCrateTypesInspection : RsLintInspection() {
                 }
             }
         }
+
+    override val isSyntaxOnly: Boolean get() = true
 
     companion object {
         val KNOWN_CRATE_TYPES = listOf("bin", "lib", "dylib", "staticlib", "cdylib", "rlib", "proc-macro")
