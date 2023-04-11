@@ -58,7 +58,7 @@ class RsAttrErrorAnnotatorTest : RsAnnotatorTestBase(RsAttrErrorAnnotator::class
     """)
 
     fun `test check literal with suffixes in attrs`() = checkByText("""
-        #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1usize</error>)]
+        #[<error descr="Multiple 'rustc_legacy_const_generics' attributes">rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1usize</error>)</error>]
         #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u8</error>)]
         #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u16</error>)]
         #[rustc_legacy_const_generics(<error descr="Suffixed literals are not allowed in attributes">1u32</error>)]

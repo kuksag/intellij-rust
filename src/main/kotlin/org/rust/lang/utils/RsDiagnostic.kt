@@ -1709,7 +1709,7 @@ sealed class RsDiagnostic(
             null,
             "Wrong meta list delimiters",
             description = "The delimiters should be `(` and `)`",
-            fixes = listOf(fix),
+            fixes = listOfFixes(fix),
         )
     }
 
@@ -1735,7 +1735,7 @@ sealed class RsDiagnostic(
             null,
             "Suffixed literals are not allowed in attributes",
             description = "Instead of using a suffixed literal (`1u8`, `1.0f32`, etc.), use an unsuffixed version (`1`, `\n" + "1.0`, etc.)",
-            fixes = listOf(fix),
+            fixes = listOfFixes(fix),
         )
     }
 
@@ -1759,7 +1759,7 @@ sealed class RsDiagnostic(
             null,
             "Unused attribute",
             description = if (isFutureWarning) "This was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!" else "",
-            fixes = listOf(fix)
+            fixes = listOfFixes(fix)
         )
     }
 
@@ -1772,7 +1772,7 @@ sealed class RsDiagnostic(
             ERROR,
             null,
             "Multiple '$name' attributes",
-            fixes = listOf(fix),
+            fixes = listOfFixes(fix),
         )
     }
 

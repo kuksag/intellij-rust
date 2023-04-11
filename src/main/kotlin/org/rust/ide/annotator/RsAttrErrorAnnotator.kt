@@ -7,8 +7,8 @@ package org.rust.ide.annotator
 
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.psi.PsiElement
-import org.rust.ide.annotator.fixes.RemoveElementFix
-import org.rust.ide.inspections.fixes.SubstituteTextFix
+import org.rust.ide.fixes.RemoveElementFix
+import org.rust.ide.fixes.SubstituteTextFix
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.ext.*
 import org.rust.lang.utils.RsDiagnostic
